@@ -1,73 +1,40 @@
-use colored::Colorize;
-
 #[derive(Debug)]
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     tiles: [[Tile; HEIGHT]; WIDTH],
+    air_levelers: Vec<AirLeveler>,
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
-    pub fn new(tiles: [[Tile; HEIGHT]; WIDTH]) -> Self {
-        Self { tiles }
+    pub fn new(tiles: [[Tile; HEIGHT]; WIDTH], air_levelers: Vec<AirLeveler>) -> Self {
+        Self {
+            tiles,
+            air_levelers,
+        }
     }
 
     pub fn new_default() -> Self {
         Self {
             tiles: [[Tile::default(); HEIGHT]; WIDTH],
+            air_levelers: Vec::new(),
         }
     }
 
-    pub fn print_air_pressure(&self) {
-        let mut highest_value: f32 = f32::NEG_INFINITY;
-        let mut lowest_value: f32 = f32::INFINITY;
-        
-        for x in 0..WIDTH {
-            for y in 0..HEIGHT {
-                let air_pressure = self.tiles[x][y]
-                    .tile_type
-                    .as_ground()
-                    .map(|data| data.air_pressure)
-                    .unwrap_or(0.0);
-                highest_value = highest_value.max(air_pressure);
-                lowest_value = lowest_value.min(air_pressure);
-            }
+    fn all_tile_coords() -> impl Iterator<Item = (usize, usize)> {
+        itertools::iproduct!(0..WIDTH, 0..HEIGHT)
+    }
+
+    pub fn collect_air_pressure_map(&self) -> [[f32; HEIGHT]; WIDTH] {
+        let mut result = [[0.0; HEIGHT]; WIDTH];
+
+        for (x, y) in Self::all_tile_coords() {
+            result[x][y] = self.tiles[x][y]
+                .tile_type
+                .as_ground()
+                .map(|ground| ground.air_pressure)
+                .unwrap_or(f32::NAN);
         }
 
-        println!("Max: {highest_value}");
-        println!("Min: {lowest_value}");
-        print!("|");
-        for _ in 0..WIDTH {
-            print!("--");
-        }
-        println!("|");
-        for x in 0..WIDTH {
-            print!("|");
-            for y in 0..HEIGHT {
-                let air_pressure = self.tiles[x][y]
-                    .tile_type
-                    .as_ground()
-                    .map(|data| data.air_pressure)
-                    .unwrap_or(0.0);
-
-                let percent = (air_pressure - lowest_value) / (highest_value - lowest_value);
-
-                let color_value = (percent * 255.0) as u8;
-
-                print!(
-                    "{}",
-                    "▄ ".color(colored::Color::TrueColor {
-                        r: u8::MAX - color_value,
-                        g: color_value,
-                        b: 0
-                    })
-                );
-            }
-            println!("|");
-        }
-        print!("|");
-        for _ in 0..WIDTH {
-            print!("--");
-        }
-        println!("|");
+        result
     }
 
     fn neighbour_tile_coords(
@@ -101,58 +68,85 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             .map(|(x, y)| (x, y, &self.tiles[x][y]))
     }
 
-    pub fn calculate_air_pressure_diff(&self, delta_time: f32) -> [[f32; HEIGHT]; WIDTH] {
+    pub fn simulate(&mut self, delta_time: f32) {
+        let air_pressure_diff = self.calculate_air_pressure_diff(delta_time);
+        self.apply_air_pressure_diff(air_pressure_diff);
+    }
+
+    // TODO: We need more ait pressure diff info. Per tile we need to know how much is given away to each neighbour
+    fn calculate_air_pressure_diff(&self, delta_time: f32) -> [[f32; HEIGHT]; WIDTH] {
         let mut result = [[0.0; HEIGHT]; WIDTH];
 
-        const AIR_PRESSURE_SPREAD_RATE: f32 = 1.0;
+        const AIR_PRESSURE_SPREAD_RATE: f32 = 2.0;
 
         // In this model we will 'give away' air pressure.
 
-        for x in 0..WIDTH {
-            for y in 0..HEIGHT {
-                let Some(tile) = &self.tiles[x][y].tile_type.as_ground() else {
+        for (x, y) in Self::all_tile_coords() {
+            let Some(ground) = &self.tiles[x][y].tile_type.as_ground() else {
                     continue;
                 };
 
-                let neighbour_ground_with_lower_air_pressure = self
-                    // Get all neighbours
-                    .neighbour_tiles(x, y)
-                    // Get only the ones that are ground
-                    .filter_map(|(x, y, tile)| {
-                        tile.tile_type
-                            .as_ground()
-                            .map(|ground_data| (x, y, ground_data))
-                    })
-                    // Only keep the ones with lower air pressure
-                    .filter(|data| data.2.air_pressure < tile.air_pressure);
+            let neighbour_ground_with_lower_air_pressure = self
+                // Get all neighbours
+                .neighbour_tiles(x, y)
+                // Get only the ones that are ground
+                .filter_map(|(x, y, tile)| {
+                    tile.tile_type
+                        .as_ground()
+                        .map(|ground_data| (x, y, ground_data))
+                })
+                // Only keep the ones with lower air pressure
+                .filter(|data| data.2.air_pressure < ground.air_pressure);
 
-                let mut given_away = 0.0;
+            let mut given_away = 0.0;
 
-                for (nx, ny, neighbour) in neighbour_ground_with_lower_air_pressure {
-                    let pressure_delta = tile.air_pressure - neighbour.air_pressure;
-                    let applied_pressure_delta =
-                        (pressure_delta * AIR_PRESSURE_SPREAD_RATE * delta_time)
-                            .min(tile.air_pressure / 8.0);
-                    result[nx][ny] += applied_pressure_delta;
-                    given_away += applied_pressure_delta;
-                }
-
-                result[x][y] -= given_away;
+            for (nx, ny, neighbour) in neighbour_ground_with_lower_air_pressure {
+                let pressure_delta = ground.air_pressure - neighbour.air_pressure;
+                let applied_pressure_delta =
+                    (pressure_delta * AIR_PRESSURE_SPREAD_RATE * delta_time)
+                        .min(ground.air_pressure / 8.0);
+                result[nx][ny] += applied_pressure_delta;
+                given_away += applied_pressure_delta;
             }
+
+            result[x][y] -= given_away;
         }
 
         result
     }
 
-    pub fn apply_air_pressure_diff(&mut self, diff: [[f32; HEIGHT]; WIDTH]) {
-        for x in 0..WIDTH {
-            for y in 0..HEIGHT {
-                let Some(tile) = self.tiles[x][y].tile_type.as_ground_mut() else {
+    // fn calculate_oxygen_spread(&self, air_pressure_diff: &[[f32; HEIGHT]; WIDTH]) -> [[f32; HEIGHT]; WIDTH] {
+    //     // We will use a model where we 'give away' oxygen
+    //     for (x, y) in Self::all_tile_coords() {
+    //         let current_pressure_diff = air_pressure_diff[x][y];
+    //         if current_pressure_diff >= 0.0 {
+    //             continue;
+    //         }
+
+    //         // We are losing air pressure to all neighbours that have a lower air pressure.
+    //         // We have an oxygen% and can calculate how much air and its %
+    //         // goes to the neighbours and we can calulate how the oxygen% in the neighbour will change.
+    //         // Our own oxygen% stays the same.
+
+    //         let 
+    //     }
+    // }
+
+    fn apply_air_pressure_diff(&mut self, diff: [[f32; HEIGHT]; WIDTH]) {
+        for (x, y) in Self::all_tile_coords() {
+            let Some(ground) = self.tiles[x][y].tile_type.as_ground_mut() else {
                     continue;
                 };
 
-                tile.air_pressure += diff[x][y];
-            }
+            ground.air_pressure += diff[x][y];
+        }
+
+        for air_leveler in self.air_levelers.iter() {
+            let Some(ground) = self.tiles[air_leveler.x][air_leveler.y].tile_type.as_ground_mut() else {
+                continue;
+            };
+
+            ground.air_pressure = air_leveler.air_pressure;
         }
     }
 }
@@ -195,10 +189,16 @@ impl TileType {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct GroundTileData {
     air_pressure: f32,
     oxygen: f32,
+}
+
+impl Default for GroundTileData {
+    fn default() -> Self {
+        Self { air_pressure: 1.0, oxygen: 0.21 }
+    }
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -208,8 +208,18 @@ pub enum LiquidType {
     Lava,
 }
 
+#[derive(Debug)]
+pub struct AirLeveler {
+    x: usize,
+    y: usize,
+    air_pressure: f32,
+    oxygen: f32,
+}
+
 #[cfg(test)]
 mod tests {
+    use std::{fs::File, path::Path};
+
     use super::*;
 
     #[test]
@@ -241,9 +251,62 @@ mod tests {
         assert_eq!(neighbours.len(), 8);
     }
 
+    fn create_map_gif<const WIDTH: usize, const HEIGHT: usize>(
+        path: impl AsRef<Path>,
+        map: &mut Map<WIDTH, HEIGHT>,
+        iterations: usize,
+        frame_every_nth: usize,
+        mut data_step: impl FnMut(&Map<WIDTH, HEIGHT>) -> [[f32; HEIGHT]; WIDTH],
+        max_value: f32,
+        delta_time: f32,
+    ) {
+        let mut image = File::create(path).unwrap();
+        let mut encoder = gif::Encoder::new(&mut image, WIDTH as u16, HEIGHT as u16, &[]).unwrap();
+        encoder.set_repeat(gif::Repeat::Infinite).unwrap();
+
+        for i in 0..iterations {
+            if i % frame_every_nth == 0 {
+                let data = data_step(&map);
+
+                let mut pixels = vec![0; WIDTH * HEIGHT * 3];
+                for (i, (x, y)) in Map::<WIDTH, HEIGHT>::all_tile_coords().enumerate() {
+                    if data[x][y].is_nan() {
+                        continue;
+                    }
+                    pixels[i * 3 + 0] =
+                        255 - (data[x][y] / max_value * 255.0).clamp(0.0, 255.0) as u8;
+                    pixels[i * 3 + 1] =
+                        ((data[x][y] / max_value).powf(0.1) * 255.0).clamp(0.0, 255.0) as u8;
+                    pixels[i * 3 + 2] = 0;
+                }
+                encoder
+                    .write_frame(&gif::Frame::from_rgb(
+                        WIDTH as u16,
+                        HEIGHT as u16,
+                        &mut pixels,
+                    ))
+                    .unwrap();
+            }
+
+            map.simulate(delta_time)
+        }
+    }
+
     #[test]
     fn air_pressure() {
         let mut map = Map::<10, 10>::new_default();
+        map.air_levelers.push(AirLeveler {
+            x: 0,
+            y: 0,
+            air_pressure: 1.0,
+            oxygen: 0.21,
+        });
+        map.air_levelers.push(AirLeveler {
+            x: 9,
+            y: 9,
+            air_pressure: 0.9,
+            oxygen: 0.21,
+        });
         map.tiles[0][0] = Tile {
             tile_type: TileType::Ground(GroundTileData {
                 air_pressure: 1.0,
@@ -251,12 +314,47 @@ mod tests {
             }),
             ..Default::default()
         };
-
-        for _ in 0..100000 {
-            let diff = map.calculate_air_pressure_diff(0.01);
-            map.apply_air_pressure_diff(diff);
+        for i in 1..8 {
+            map.tiles[1][i] = Tile {
+                tile_type: TileType::Wall,
+                ..Default::default()
+            };
+        }
+        for i in 1..8 {
+            map.tiles[i][1] = Tile {
+                tile_type: TileType::Wall,
+                ..Default::default()
+            };
+        }
+        for i in 3..8 {
+            map.tiles[3][i] = Tile {
+                tile_type: TileType::Wall,
+                ..Default::default()
+            };
+        }
+        for i in 3..8 {
+            map.tiles[i][3] = Tile {
+                tile_type: TileType::Wall,
+                ..Default::default()
+            };
         }
 
-        map.print_air_pressure();
+        create_map_gif(
+            "target/air_pressure.gif",
+            &mut map,
+            100,
+            1,
+            |map| map.collect_air_pressure_map(),
+            1.0,
+            0.05,
+        );
+
+        dbg!(map.calculate_air_pressure_diff(0.05));
+    }
+
+    #[test]
+    fn all_tile_coords() {
+        let coords = Map::<1, 2>::all_tile_coords().collect::<Vec<_>>();
+        assert_eq!(coords, vec![(0, 0), (0, 1)])
     }
 }
