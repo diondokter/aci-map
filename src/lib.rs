@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     tiles: [[Tile; HEIGHT]; WIDTH],
     air_levelers: Vec<AirLeveler>,
@@ -37,6 +37,20 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         result
     }
 
+    pub fn collect_oxygen_map(&self) -> [[f32; HEIGHT]; WIDTH] {
+        let mut result = [[0.0; HEIGHT]; WIDTH];
+
+        for (x, y) in Self::all_tile_coords() {
+            result[x][y] = self.tiles[x][y]
+                .tile_type
+                .as_ground()
+                .map(|ground| ground.oxygen)
+                .unwrap_or(f32::NAN);
+        }
+
+        result
+    }
+
     fn neighbour_tile_coords(
         target_tile_x: usize,
         target_tile_y: usize,
@@ -69,13 +83,16 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     }
 
     pub fn simulate(&mut self, delta_time: f32) {
-        let air_pressure_diff = self.calculate_air_pressure_diff(delta_time);
-        self.apply_air_pressure_diff(air_pressure_diff);
+        let (air_pressure_diff, oxygen_diff) = self.calculate_air_diff(delta_time);
+        self.apply_air_diff(air_pressure_diff, oxygen_diff);
     }
 
-    // TODO: We need more ait pressure diff info. Per tile we need to know how much is given away to each neighbour
-    fn calculate_air_pressure_diff(&self, delta_time: f32) -> [[f32; HEIGHT]; WIDTH] {
-        let mut result = [[0.0; HEIGHT]; WIDTH];
+    fn calculate_air_diff(
+        &self,
+        delta_time: f32,
+    ) -> ([[f32; HEIGHT]; WIDTH], [[f32; HEIGHT]; WIDTH]) {
+        let mut air_pressure_result = [[0.0; HEIGHT]; WIDTH];
+        let mut oxygen_result = [[0.0; HEIGHT]; WIDTH];
 
         const AIR_PRESSURE_SPREAD_RATE: f32 = 2.0;
 
@@ -98,47 +115,43 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 // Only keep the ones with lower air pressure
                 .filter(|data| data.2.air_pressure < ground.air_pressure);
 
-            let mut given_away = 0.0;
+            let mut air_pressure_given_away = 0.0;
 
             for (nx, ny, neighbour) in neighbour_ground_with_lower_air_pressure {
                 let pressure_delta = ground.air_pressure - neighbour.air_pressure;
                 let applied_pressure_delta =
                     (pressure_delta * AIR_PRESSURE_SPREAD_RATE * delta_time)
                         .min(ground.air_pressure / 8.0);
-                result[nx][ny] += applied_pressure_delta;
-                given_away += applied_pressure_delta;
+
+                oxygen_result[nx][ny] += ground.oxygen * applied_pressure_delta;
+                air_pressure_result[nx][ny] += applied_pressure_delta;
+                air_pressure_given_away += applied_pressure_delta;
             }
 
-            result[x][y] -= given_away;
+            air_pressure_result[x][y] -= air_pressure_given_away;
         }
 
-        result
+        (air_pressure_result, oxygen_result)
     }
 
-    // fn calculate_oxygen_spread(&self, air_pressure_diff: &[[f32; HEIGHT]; WIDTH]) -> [[f32; HEIGHT]; WIDTH] {
-    //     // We will use a model where we 'give away' oxygen
-    //     for (x, y) in Self::all_tile_coords() {
-    //         let current_pressure_diff = air_pressure_diff[x][y];
-    //         if current_pressure_diff >= 0.0 {
-    //             continue;
-    //         }
-
-    //         // We are losing air pressure to all neighbours that have a lower air pressure.
-    //         // We have an oxygen% and can calculate how much air and its %
-    //         // goes to the neighbours and we can calulate how the oxygen% in the neighbour will change.
-    //         // Our own oxygen% stays the same.
-
-    //         let 
-    //     }
-    // }
-
-    fn apply_air_pressure_diff(&mut self, diff: [[f32; HEIGHT]; WIDTH]) {
+    fn apply_air_diff(
+        &mut self,
+        air_pressure_diff: [[f32; HEIGHT]; WIDTH],
+        oxygen_diff: [[f32; HEIGHT]; WIDTH],
+    ) {
         for (x, y) in Self::all_tile_coords() {
             let Some(ground) = self.tiles[x][y].tile_type.as_ground_mut() else {
                     continue;
                 };
 
-            ground.air_pressure += diff[x][y];
+            ground.air_pressure += air_pressure_diff[x][y];
+
+            if oxygen_diff[x][y] > 0.0 {
+                let total_old_oxygen =
+                    (ground.air_pressure - air_pressure_diff[x][y]) * ground.oxygen;
+                let total_new_oxygen = total_old_oxygen + oxygen_diff[x][y];
+                ground.oxygen = total_new_oxygen / ground.air_pressure
+            }
         }
 
         for air_leveler in self.air_levelers.iter() {
@@ -147,6 +160,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             };
 
             ground.air_pressure = air_leveler.air_pressure;
+            ground.oxygen = air_leveler.oxygen;
         }
     }
 }
@@ -197,7 +211,10 @@ pub struct GroundTileData {
 
 impl Default for GroundTileData {
     fn default() -> Self {
-        Self { air_pressure: 1.0, oxygen: 0.21 }
+        Self {
+            air_pressure: 0.0,
+            oxygen: 0.0,
+        }
     }
 }
 
@@ -208,7 +225,7 @@ pub enum LiquidType {
     Lava,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AirLeveler {
     x: usize,
     y: usize,
@@ -274,10 +291,10 @@ mod tests {
                         continue;
                     }
                     pixels[i * 3 + 0] =
-                        255 - (data[x][y] / max_value * 255.0).clamp(0.0, 255.0) as u8;
+                        ((1.0 - data[x][y] / max_value).powf(0.1) * 255.0).clamp(0.0, 255.0) as u8;
                     pixels[i * 3 + 1] =
                         ((data[x][y] / max_value).powf(0.1) * 255.0).clamp(0.0, 255.0) as u8;
-                    pixels[i * 3 + 2] = 0;
+                    pixels[i * 3 + 2] = if data[x][y] > max_value { 255 } else { 0 };
                 }
                 encoder
                     .write_frame(&gif::Frame::from_rgb(
@@ -298,14 +315,14 @@ mod tests {
         map.air_levelers.push(AirLeveler {
             x: 0,
             y: 0,
-            air_pressure: 1.0,
-            oxygen: 0.21,
+            air_pressure: 0.01,
+            oxygen: 0.00,
         });
         map.air_levelers.push(AirLeveler {
             x: 9,
             y: 9,
-            air_pressure: 0.9,
-            oxygen: 0.21,
+            air_pressure: 1.0,
+            oxygen: 0.01,
         });
         map.tiles[0][0] = Tile {
             tile_type: TileType::Ground(GroundTileData {
@@ -341,15 +358,42 @@ mod tests {
 
         create_map_gif(
             "target/air_pressure.gif",
-            &mut map,
-            100,
-            1,
+            &mut map.clone(),
+            1000,
+            10,
             |map| map.collect_air_pressure_map(),
             1.0,
             0.05,
         );
+        create_map_gif(
+            "target/oxygen.gif",
+            &mut map.clone(),
+            1000,
+            10,
+            |map| map.collect_oxygen_map(),
+            0.21,
+            0.05,
+        );
+        create_map_gif(
+            "target/oxygen_diff.gif",
+            &mut map.clone(),
+            1000,
+            10,
+            |map| map.calculate_air_diff(0.05).1,
+            0.21,
+            0.05,
+        );
+        create_map_gif(
+            "target/air_pressure_diff.gif",
+            &mut map.clone(),
+            1000,
+            10,
+            |map| map.calculate_air_diff(0.05).0,
+            1.0,
+            0.05,
+        );
 
-        dbg!(map.calculate_air_pressure_diff(0.05));
+        dbg!(map.calculate_air_diff(0.05));
     }
 
     #[test]
