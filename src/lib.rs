@@ -55,18 +55,23 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         target_tile_x: usize,
         target_tile_y: usize,
     ) -> impl Iterator<Item = (usize, usize)> + Clone {
+        let has_neg_x_neighbour = target_tile_x > 0;
+        let has_neg_y_neighbour = target_tile_y > 0;
+        let has_pos_x_neighbour = target_tile_x < WIDTH - 1;
+        let has_pos_y_neighbour = target_tile_y < HEIGHT - 1;
+
         [
-            (target_tile_x > 0 && target_tile_y > 0)
+            (has_neg_x_neighbour && has_neg_y_neighbour)
                 .then(|| (target_tile_x - 1, target_tile_y - 1)),
-            (target_tile_x > 0).then(|| (target_tile_x - 1, target_tile_y)),
-            (target_tile_x > 0 && target_tile_y < WIDTH - 1)
+            (has_neg_x_neighbour).then(|| (target_tile_x - 1, target_tile_y)),
+            (has_neg_x_neighbour && has_pos_y_neighbour)
                 .then(|| (target_tile_x - 1, target_tile_y + 1)),
-            (target_tile_y > 0).then(|| (target_tile_x, target_tile_y - 1)),
-            (target_tile_y < WIDTH - 1).then(|| (target_tile_x, target_tile_y + 1)),
-            (target_tile_x < HEIGHT - 1 && target_tile_y > 0)
+            (has_neg_y_neighbour).then(|| (target_tile_x, target_tile_y - 1)),
+            (has_pos_y_neighbour).then(|| (target_tile_x, target_tile_y + 1)),
+            (has_pos_x_neighbour && has_neg_y_neighbour)
                 .then(|| (target_tile_x + 1, target_tile_y - 1)),
-            (target_tile_x < HEIGHT - 1).then(|| (target_tile_x + 1, target_tile_y)),
-            (target_tile_x < HEIGHT - 1 && target_tile_y < WIDTH - 1)
+            (has_pos_x_neighbour).then(|| (target_tile_x + 1, target_tile_y)),
+            (has_pos_x_neighbour && has_pos_y_neighbour)
                 .then(|| (target_tile_x + 1, target_tile_y + 1)),
         ]
         .into_iter()
@@ -83,18 +88,21 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     }
 
     pub fn simulate(&mut self, delta_time: f32) {
-        let (air_pressure_diff, oxygen_diff) = self.calculate_air_diff(delta_time);
-        self.apply_air_diff(air_pressure_diff, oxygen_diff);
+        let air_diff = self.calculate_air_diff(delta_time);
+        // println!(
+        //     "ap:   {:+0.4?}\nox%:  {:+0.4?}\napd:  {:+0.4?}\nox%d: {:+0.4?}\n",
+        //     self.collect_air_pressure_map(),
+        //     self.collect_oxygen_map(),
+        //     air_pressure_diff,
+        //     oxygen_diff
+        // );
+        self.apply_air_diff(air_diff);
     }
 
-    fn calculate_air_diff(
-        &self,
-        delta_time: f32,
-    ) -> ([[f32; HEIGHT]; WIDTH], [[f32; HEIGHT]; WIDTH]) {
-        let mut air_pressure_result = [[0.0; HEIGHT]; WIDTH];
-        let mut oxygen_result = [[0.0; HEIGHT]; WIDTH];
+    fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
+        let mut air_diff_result = [[AirDiff::default(); HEIGHT]; WIDTH];
 
-        const AIR_PRESSURE_SPREAD_RATE: f32 = 2.0;
+        const AIR_PRESSURE_SPREAD_RATE: f32 = 1.0;
 
         // In this model we will 'give away' air pressure.
 
@@ -123,35 +131,32 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                     (pressure_delta * AIR_PRESSURE_SPREAD_RATE * delta_time)
                         .min(ground.air_pressure / 8.0);
 
-                oxygen_result[nx][ny] += ground.oxygen * applied_pressure_delta;
-                air_pressure_result[nx][ny] += applied_pressure_delta;
+                air_diff_result[nx][ny].oxygen_pressure_gain +=
+                    ground.oxygen * applied_pressure_delta;
+                air_diff_result[nx][ny].pressure_gain += applied_pressure_delta;
                 air_pressure_given_away += applied_pressure_delta;
             }
 
-            air_pressure_result[x][y] -= air_pressure_given_away;
+            air_diff_result[x][y].pressure_loss += air_pressure_given_away;
         }
 
-        (air_pressure_result, oxygen_result)
+        air_diff_result
     }
 
-    fn apply_air_diff(
-        &mut self,
-        air_pressure_diff: [[f32; HEIGHT]; WIDTH],
-        oxygen_diff: [[f32; HEIGHT]; WIDTH],
-    ) {
+    fn apply_air_diff(&mut self, air_diff: [[AirDiff; HEIGHT]; WIDTH]) {
         for (x, y) in Self::all_tile_coords() {
             let Some(ground) = self.tiles[x][y].tile_type.as_ground_mut() else {
                     continue;
                 };
 
-            ground.air_pressure += air_pressure_diff[x][y];
-
-            if oxygen_diff[x][y] > 0.0 {
-                let total_old_oxygen =
-                    (ground.air_pressure - air_pressure_diff[x][y]) * ground.oxygen;
-                let total_new_oxygen = total_old_oxygen + oxygen_diff[x][y];
-                ground.oxygen = total_new_oxygen / ground.air_pressure
+            if air_diff[x][y].oxygen_pressure_gain > 0.0 {
+                let total_old_oxygen = ground.air_pressure * ground.oxygen;
+                let total_new_oxygen = total_old_oxygen + air_diff[x][y].oxygen_pressure_gain;
+                ground.oxygen =
+                    total_new_oxygen / (ground.air_pressure + air_diff[x][y].pressure_gain);
             }
+
+            ground.air_pressure += air_diff[x][y].pressure_gain - air_diff[x][y].pressure_loss;
         }
 
         for air_leveler in self.air_levelers.iter() {
@@ -163,6 +168,13 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             ground.oxygen = air_leveler.oxygen;
         }
     }
+}
+
+#[derive(Default, Clone, Copy, Debug)]
+struct AirDiff {
+    pressure_gain: f32,
+    oxygen_pressure_gain: f32,
+    pressure_loss: f32,
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -212,7 +224,7 @@ pub struct GroundTileData {
 impl Default for GroundTileData {
     fn default() -> Self {
         Self {
-            air_pressure: 0.0,
+            air_pressure: 1.0,
             oxygen: 0.0,
         }
     }
@@ -266,6 +278,12 @@ mod tests {
         assert!(neighbours.contains(&(6, 5)));
         assert!(neighbours.contains(&(6, 6)));
         assert_eq!(neighbours.len(), 8);
+
+        let neighbours = dbg!(Map::<10, 1>::neighbour_tile_coords(1, 0).collect::<Vec<_>>());
+
+        assert!(neighbours.contains(&(0, 0)));
+        assert!(neighbours.contains(&(2, 0)));
+        assert_eq!(neighbours.len(), 2);
     }
 
     fn create_map_gif<const WIDTH: usize, const HEIGHT: usize>(
@@ -315,22 +333,21 @@ mod tests {
         map.air_levelers.push(AirLeveler {
             x: 0,
             y: 0,
-            air_pressure: 0.01,
+            air_pressure: 0.9,
             oxygen: 0.00,
         });
         map.air_levelers.push(AirLeveler {
             x: 9,
             y: 9,
             air_pressure: 1.0,
-            oxygen: 0.01,
+            oxygen: 0.20,
         });
-        map.tiles[0][0] = Tile {
-            tile_type: TileType::Ground(GroundTileData {
-                air_pressure: 1.0,
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+        map.air_levelers.push(AirLeveler {
+            x: 2,
+            y: 2,
+            air_pressure: 1.0,
+            oxygen: 0.10,
+        });
         for i in 1..8 {
             map.tiles[1][i] = Tile {
                 tile_type: TileType::Wall,
@@ -374,26 +391,6 @@ mod tests {
             0.21,
             0.05,
         );
-        create_map_gif(
-            "target/oxygen_diff.gif",
-            &mut map.clone(),
-            1000,
-            10,
-            |map| map.calculate_air_diff(0.05).1,
-            0.21,
-            0.05,
-        );
-        create_map_gif(
-            "target/air_pressure_diff.gif",
-            &mut map.clone(),
-            1000,
-            10,
-            |map| map.calculate_air_diff(0.05).0,
-            1.0,
-            0.05,
-        );
-
-        dbg!(map.calculate_air_diff(0.05));
     }
 
     #[test]
