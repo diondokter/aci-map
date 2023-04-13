@@ -89,22 +89,15 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
     pub fn simulate(&mut self, delta_time: f32) {
         let air_diff = self.calculate_air_diff(delta_time);
-        // println!(
-        //     "ap:   {:+0.4?}\nox%:  {:+0.4?}\napd:  {:+0.4?}\nox%d: {:+0.4?}\n",
-        //     self.collect_air_pressure_map(),
-        //     self.collect_oxygen_map(),
-        //     air_pressure_diff,
-        //     oxygen_diff
-        // );
         self.apply_air_diff(air_diff);
     }
 
     fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
         let mut air_diff_result = [[AirDiff::default(); HEIGHT]; WIDTH];
 
-        const AIR_PRESSURE_SPREAD_RATE: f32 = 1.0;
+        const AIR_PRESSURE_SPREAD_RATE: f32 = 2.0;
 
-        // In this model we will 'give away' air pressure.
+        // In this model we will 'give away' air pressure and oxygen.
 
         for (x, y) in Self::all_tile_coords() {
             let Some(ground) = &self.tiles[x][y].tile_type.as_ground() else {
@@ -333,14 +326,14 @@ mod tests {
         map.air_levelers.push(AirLeveler {
             x: 0,
             y: 0,
-            air_pressure: 0.9,
+            air_pressure: 0.8,
             oxygen: 0.00,
         });
         map.air_levelers.push(AirLeveler {
             x: 9,
             y: 9,
             air_pressure: 1.0,
-            oxygen: 0.20,
+            oxygen: 0.21,
         });
         map.air_levelers.push(AirLeveler {
             x: 2,
@@ -368,6 +361,18 @@ mod tests {
         }
         for i in 3..8 {
             map.tiles[i][3] = Tile {
+                tile_type: TileType::Wall,
+                ..Default::default()
+            };
+        }
+        for i in 3..6 {
+            map.tiles[7][i] = Tile {
+                tile_type: TileType::Wall,
+                ..Default::default()
+            };
+        }
+        for i in 3..6 {
+            map.tiles[i][7] = Tile {
                 tile_type: TileType::Wall,
                 ..Default::default()
             };
