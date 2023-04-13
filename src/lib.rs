@@ -322,80 +322,88 @@ mod tests {
 
     #[test]
     fn air_pressure() {
-        let mut map = Map::<10, 10>::new_default();
-        map.air_levelers.push(AirLeveler {
-            x: 0,
-            y: 0,
-            air_pressure: 0.8,
-            oxygen: 0.00,
-        });
-        map.air_levelers.push(AirLeveler {
-            x: 9,
-            y: 9,
-            air_pressure: 1.0,
-            oxygen: 0.21,
-        });
-        map.air_levelers.push(AirLeveler {
-            x: 2,
-            y: 2,
-            air_pressure: 1.0,
-            oxygen: 0.10,
-        });
-        for i in 1..8 {
-            map.tiles[1][i] = Tile {
-                tile_type: TileType::Wall,
-                ..Default::default()
-            };
-        }
-        for i in 1..8 {
-            map.tiles[i][1] = Tile {
-                tile_type: TileType::Wall,
-                ..Default::default()
-            };
-        }
-        for i in 3..8 {
-            map.tiles[3][i] = Tile {
-                tile_type: TileType::Wall,
-                ..Default::default()
-            };
-        }
-        for i in 3..8 {
-            map.tiles[i][3] = Tile {
-                tile_type: TileType::Wall,
-                ..Default::default()
-            };
-        }
-        for i in 3..6 {
-            map.tiles[7][i] = Tile {
-                tile_type: TileType::Wall,
-                ..Default::default()
-            };
-        }
-        for i in 3..6 {
-            map.tiles[i][7] = Tile {
-                tile_type: TileType::Wall,
-                ..Default::default()
-            };
-        }
+        std::thread::Builder::new()
+            .name("TestThread".into())
+            .stack_size(16*1024*1024)
+            .spawn(|| {
+                let mut map = Map::<10, 10>::new_default();
+                map.air_levelers.push(AirLeveler {
+                    x: 0,
+                    y: 0,
+                    air_pressure: 0.8,
+                    oxygen: 0.00,
+                });
+                map.air_levelers.push(AirLeveler {
+                    x: 9,
+                    y: 9,
+                    air_pressure: 1.0,
+                    oxygen: 0.21,
+                });
+                map.air_levelers.push(AirLeveler {
+                    x: 2,
+                    y: 2,
+                    air_pressure: 1.0,
+                    oxygen: 0.10,
+                });
+                for i in 1..8 {
+                    map.tiles[1][i] = Tile {
+                        tile_type: TileType::Wall,
+                        ..Default::default()
+                    };
+                }
+                for i in 1..8 {
+                    map.tiles[i][1] = Tile {
+                        tile_type: TileType::Wall,
+                        ..Default::default()
+                    };
+                }
+                for i in 3..8 {
+                    map.tiles[3][i] = Tile {
+                        tile_type: TileType::Wall,
+                        ..Default::default()
+                    };
+                }
+                for i in 3..8 {
+                    map.tiles[i][3] = Tile {
+                        tile_type: TileType::Wall,
+                        ..Default::default()
+                    };
+                }
+                for i in 3..6 {
+                    map.tiles[7][i] = Tile {
+                        tile_type: TileType::Wall,
+                        ..Default::default()
+                    };
+                }
+                for i in 3..6 {
+                    map.tiles[i][7] = Tile {
+                        tile_type: TileType::Wall,
+                        ..Default::default()
+                    };
+                }
 
-        create_map_gif(
-            "target/air_pressure.gif",
-            &mut map.clone(),
-            1000,
-            10,
-            |map| map.collect_air_pressure_map(),
-            1.0,
-            0.05,
-        );
-        create_map_gif(
-            "target/oxygen.gif",
-            &mut map.clone(),
-            1000,
-            10,
-            |map| map.collect_oxygen_map(),
-            0.21,
-            0.05,
-        );
+                create_map_gif(
+                    "target/air_pressure.gif",
+                    &mut map.clone(),
+                    100000,
+                    1000,
+                    |map| map.collect_air_pressure_map(),
+                    1.0,
+                    0.05,
+                );
+                create_map_gif(
+                    "target/oxygen.gif",
+                    &mut map.clone(),
+                    100000,
+                    1000,
+                    |map| map.collect_oxygen_map(),
+                    0.21,
+                    0.05,
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]
