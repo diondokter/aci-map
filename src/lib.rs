@@ -1,7 +1,7 @@
 #[derive(Debug, Clone)]
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
-    tiles: [[Tile; HEIGHT]; WIDTH],
-    air_levelers: Vec<AirLeveler>,
+    pub tiles: [[Tile; HEIGHT]; WIDTH],
+    pub air_levelers: Vec<AirLeveler>,
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
@@ -12,15 +12,17 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         }
     }
 
-    pub fn new_default() -> Self {
+    pub const fn new_default() -> Self {
         Self {
-            tiles: [[Tile::default(); HEIGHT]; WIDTH],
+            tiles: [[Tile::new_default(); HEIGHT]; WIDTH],
             air_levelers: Vec::new(),
         }
     }
 
     fn all_tile_coords() -> impl Iterator<Item = (usize, usize)> {
-        itertools::iproduct!(0..WIDTH, 0..HEIGHT)
+        (0..WIDTH)
+            .map(|x| (0..HEIGHT).map(move |y| (x, y)))
+            .flatten()
     }
 
     pub fn collect_air_pressure_map(&self) -> [[f32; HEIGHT]; WIDTH] {
@@ -120,9 +122,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
             for (nx, ny, neighbour) in neighbour_ground_with_lower_air_pressure {
                 let pressure_delta = ground.air_pressure - neighbour.air_pressure;
-                let applied_pressure_delta =
-                    (pressure_delta * AIR_PRESSURE_SPREAD_RATE * delta_time)
-                        .min(ground.air_pressure / 8.0);
+                let applied_pressure_delta = pressure_delta * AIR_PRESSURE_SPREAD_RATE * delta_time;
 
                 air_diff_result[nx][ny].oxygen_pressure_gain +=
                     ground.oxygen * applied_pressure_delta;
@@ -150,6 +150,9 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             }
 
             ground.air_pressure += air_diff[x][y].pressure_gain - air_diff[x][y].pressure_loss;
+            if ground.air_pressure < 0.0 {
+                ground.air_pressure = 0.0;
+            }
         }
 
         for air_leveler in self.air_levelers.iter() {
@@ -163,6 +166,12 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     }
 }
 
+impl<const WIDTH: usize, const HEIGHT: usize> Default for Map<WIDTH, HEIGHT> {
+    fn default() -> Self {
+        Self::new_default()
+    }
+}
+
 #[derive(Default, Clone, Copy, Debug)]
 struct AirDiff {
     pressure_gain: f32,
@@ -172,11 +181,36 @@ struct AirDiff {
 
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Tile {
-    ground_level: f32,
+    pub ground_level: f32,
     /// In meters above ground level
-    liquid_level: f32,
-    liquid_type: LiquidType,
-    tile_type: TileType,
+    pub liquid_level: f32,
+    pub liquid_type: LiquidType,
+    pub tile_type: TileType,
+}
+
+impl Tile {
+    pub fn new(
+        ground_level: f32,
+        liquid_level: f32,
+        liquid_type: LiquidType,
+        tile_type: TileType,
+    ) -> Self {
+        Self {
+            ground_level,
+            liquid_level,
+            liquid_type,
+            tile_type,
+        }
+    }
+
+    pub const fn new_default() -> Self {
+        Self {
+            ground_level: 0.0,
+            liquid_level: 0.0,
+            liquid_type: LiquidType::Water,
+            tile_type: TileType::Ground(GroundTileData::new_default()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -187,7 +221,7 @@ pub enum TileType {
 
 impl Default for TileType {
     fn default() -> Self {
-        TileType::Ground(Default::default())
+        TileType::Ground(GroundTileData::new_default())
     }
 }
 
@@ -214,10 +248,10 @@ pub struct GroundTileData {
     oxygen: f32,
 }
 
-impl Default for GroundTileData {
-    fn default() -> Self {
+impl GroundTileData {
+    pub const fn new_default() -> Self {
         Self {
-            air_pressure: 1.0,
+            air_pressure: 0.0,
             oxygen: 0.0,
         }
     }
@@ -232,10 +266,10 @@ pub enum LiquidType {
 
 #[derive(Debug, Clone)]
 pub struct AirLeveler {
-    x: usize,
-    y: usize,
-    air_pressure: f32,
-    oxygen: f32,
+    pub x: usize,
+    pub y: usize,
+    pub air_pressure: f32,
+    pub oxygen: f32,
 }
 
 #[cfg(test)]
@@ -324,7 +358,7 @@ mod tests {
     fn air_pressure() {
         std::thread::Builder::new()
             .name("TestThread".into())
-            .stack_size(16*1024*1024)
+            .stack_size(16 * 1024 * 1024)
             .spawn(|| {
                 let mut map = Map::<10, 10>::new_default();
                 map.air_levelers.push(AirLeveler {
