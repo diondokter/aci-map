@@ -32,7 +32,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             result[x][y] = self.tiles[x][y]
                 .tile_type
                 .as_ground()
-                .map(|ground| ground.air_pressure)
+                .map(|air| air.total())
                 .unwrap_or(f32::NAN);
         }
 
@@ -46,7 +46,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             result[x][y] = self.tiles[x][y]
                 .tile_type
                 .as_ground()
-                .map(|ground| ground.oxygen)
+                .map(|air| air.oxygen)
                 .unwrap_or(f32::NAN);
         }
 
@@ -97,40 +97,53 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
         let mut air_diff_result = [[AirDiff::default(); HEIGHT]; WIDTH];
 
-        const AIR_PRESSURE_SPREAD_RATE: f32 = 2.0;
+        const PRESSURE_SPREAD_RATE: f32 = 2.0;
+        const DIFFUSION_SPREAD_RATE: f32 = 2.0;
 
         // In this model we will 'give away' air pressure and oxygen.
 
         for (x, y) in Self::all_tile_coords() {
-            let Some(ground) = &self.tiles[x][y].tile_type.as_ground() else {
+            let Some(air) = &self.tiles[x][y].tile_type.as_ground() else {
                     continue;
                 };
 
-            let neighbour_ground_with_lower_air_pressure = self
+            let neighbour_airs = self
                 // Get all neighbours
                 .neighbour_tiles(x, y)
                 // Get only the ones that are ground
                 .filter_map(|(x, y, tile)| {
                     tile.tile_type
                         .as_ground()
-                        .map(|ground_data| (x, y, ground_data))
-                })
-                // Only keep the ones with lower air pressure
-                .filter(|data| data.2.air_pressure < ground.air_pressure);
+                        .map(|air| (x, y, air))
+                });
 
-            let mut air_pressure_given_away = 0.0;
+            let mut nitrogen_given_away = 0.0;
+            let mut oxygen_given_away = 0.0;
 
-            for (nx, ny, neighbour) in neighbour_ground_with_lower_air_pressure {
-                let pressure_delta = ground.air_pressure - neighbour.air_pressure;
-                let applied_pressure_delta = pressure_delta * AIR_PRESSURE_SPREAD_RATE * delta_time;
+            let nitrogen_fraction = air.nitrogen / air.total();
+            let oxygen_fraction = air.oxygen / air.total();
 
-                air_diff_result[nx][ny].oxygen_pressure_gain +=
-                    ground.oxygen * applied_pressure_delta;
-                air_diff_result[nx][ny].pressure_gain += applied_pressure_delta;
-                air_pressure_given_away += applied_pressure_delta;
+            for (nx, ny, neighbour_air) in neighbour_airs {
+
+                // Move air due to pressure difference
+                if neighbour_air.total() < air.total() {
+                    // It moves due to the total pressure difference, not the difference between each element separately
+                    let pressure_delta = air.total() - neighbour_air.total();
+                    let applied_pressure_delta = pressure_delta * PRESSURE_SPREAD_RATE * delta_time;
+
+                    let nitrogen_delta = applied_pressure_delta * nitrogen_fraction;
+                    let oxygen_delta = applied_pressure_delta * oxygen_fraction;
+
+                    air_diff_result[nx][ny].nitrogen += nitrogen_delta;
+                    air_diff_result[nx][ny].oxygen += oxygen_delta;
+
+                    nitrogen_given_away += nitrogen_delta;
+                    oxygen_given_away += oxygen_delta;
+                }
             }
 
-            air_diff_result[x][y].pressure_loss += air_pressure_given_away;
+            air_diff_result[x][y].nitrogen -= nitrogen_given_away;
+            air_diff_result[x][y].oxygen -= oxygen_given_away;
         }
 
         air_diff_result
@@ -138,30 +151,21 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
     fn apply_air_diff(&mut self, air_diff: [[AirDiff; HEIGHT]; WIDTH]) {
         for (x, y) in Self::all_tile_coords() {
-            let Some(ground) = self.tiles[x][y].tile_type.as_ground_mut() else {
+            let Some(air) = self.tiles[x][y].tile_type.as_ground_mut() else {
                     continue;
                 };
 
-            if air_diff[x][y].oxygen_pressure_gain > 0.0 {
-                let total_old_oxygen = ground.air_pressure * ground.oxygen;
-                let total_new_oxygen = total_old_oxygen + air_diff[x][y].oxygen_pressure_gain;
-                ground.oxygen =
-                    total_new_oxygen / (ground.air_pressure + air_diff[x][y].pressure_gain);
-            }
-
-            ground.air_pressure += air_diff[x][y].pressure_gain - air_diff[x][y].pressure_loss;
-            if ground.air_pressure < 0.0 {
-                ground.air_pressure = 0.0;
-            }
+            air.nitrogen += air_diff[x][y].nitrogen;
+            air.oxygen += air_diff[x][y].oxygen;
         }
 
         for air_leveler in self.air_levelers.iter() {
-            let Some(ground) = self.tiles[air_leveler.x][air_leveler.y].tile_type.as_ground_mut() else {
+            let Some(air) = self.tiles[air_leveler.x][air_leveler.y].tile_type.as_ground_mut() else {
                 continue;
             };
 
-            ground.air_pressure = air_leveler.air_pressure;
-            ground.oxygen = air_leveler.oxygen;
+            air.nitrogen = air_leveler.nitrogen;
+            air.oxygen = air_leveler.oxygen;
         }
     }
 }
@@ -174,9 +178,8 @@ impl<const WIDTH: usize, const HEIGHT: usize> Default for Map<WIDTH, HEIGHT> {
 
 #[derive(Default, Clone, Copy, Debug)]
 struct AirDiff {
-    pressure_gain: f32,
-    oxygen_pressure_gain: f32,
-    pressure_loss: f32,
+    nitrogen: f32,
+    oxygen: f32,
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -208,7 +211,7 @@ impl Tile {
             ground_level: 0.0,
             liquid_level: 0.0,
             liquid_type: LiquidType::Water,
-            tile_type: TileType::Ground(GroundTileData::new_default()),
+            tile_type: TileType::Ground(AirData::new_default()),
         }
     }
 }
@@ -216,24 +219,24 @@ impl Tile {
 #[derive(Clone, Copy, Debug)]
 pub enum TileType {
     Wall,
-    Ground(GroundTileData),
+    Ground(AirData),
 }
 
 impl Default for TileType {
     fn default() -> Self {
-        TileType::Ground(GroundTileData::new_default())
+        TileType::Ground(AirData::new_default())
     }
 }
 
 impl TileType {
-    pub fn as_ground(&self) -> Option<&GroundTileData> {
+    pub fn as_ground(&self) -> Option<&AirData> {
         if let Self::Ground(v) = self {
             Some(v)
         } else {
             None
         }
     }
-    pub fn as_ground_mut(&mut self) -> Option<&mut GroundTileData> {
+    pub fn as_ground_mut(&mut self) -> Option<&mut AirData> {
         if let Self::Ground(v) = self {
             Some(v)
         } else {
@@ -243,17 +246,21 @@ impl TileType {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct GroundTileData {
-    air_pressure: f32,
+pub struct AirData {
+    nitrogen: f32,
     oxygen: f32,
 }
 
-impl GroundTileData {
+impl AirData {
     pub const fn new_default() -> Self {
         Self {
-            air_pressure: 0.0,
+            nitrogen: 1.0,
             oxygen: 0.0,
         }
+    }
+
+    pub fn total(&self) -> f32 {
+        self.nitrogen + self.oxygen
     }
 }
 
@@ -268,7 +275,7 @@ pub enum LiquidType {
 pub struct AirLeveler {
     pub x: usize,
     pub y: usize,
-    pub air_pressure: f32,
+    pub nitrogen: f32,
     pub oxygen: f32,
 }
 
@@ -364,19 +371,19 @@ mod tests {
                 map.air_levelers.push(AirLeveler {
                     x: 0,
                     y: 0,
-                    air_pressure: 0.8,
+                    nitrogen: 0.79,
                     oxygen: 0.00,
                 });
                 map.air_levelers.push(AirLeveler {
                     x: 9,
                     y: 9,
-                    air_pressure: 1.0,
+                    nitrogen: 0.79,
                     oxygen: 0.21,
                 });
                 map.air_levelers.push(AirLeveler {
                     x: 2,
                     y: 2,
-                    air_pressure: 1.0,
+                    nitrogen:0.79,
                     oxygen: 0.10,
                 });
                 for i in 1..8 {
@@ -417,10 +424,10 @@ mod tests {
                 }
 
                 create_map_gif(
-                    "target/air_pressure.gif",
+                    "target/total_air_pressure.gif",
                     &mut map.clone(),
-                    100000,
-                    1000,
+                    10000,
+                    100,
                     |map| map.collect_air_pressure_map(),
                     1.0,
                     0.05,
@@ -428,8 +435,8 @@ mod tests {
                 create_map_gif(
                     "target/oxygen.gif",
                     &mut map.clone(),
-                    100000,
-                    1000,
+                    10000,
+                    100,
                     |map| map.collect_oxygen_map(),
                     0.21,
                     0.05,
