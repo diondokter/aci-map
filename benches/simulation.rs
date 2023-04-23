@@ -13,12 +13,14 @@ fn criterion_benchmark(c: &mut Criterion) {
         y: 0,
         nitrogen: 0.79,
         oxygen: 0.00,
+        fumes: 0.0,
     });
     map.air_levelers.push(AirLeveler {
         x: 9,
         y: 9,
-        nitrogen: 0.79,
+        nitrogen: 0.78,
         oxygen: 0.21,
+        fumes: 0.01,
     });
 
     let mut g = c.benchmark_group("simulate");
