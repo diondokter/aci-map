@@ -79,21 +79,21 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                     })
                 }
             } else {
-                // let particles_to_remove = self
-                //     .particles
-                //     .iter()
-                //     .enumerate()
-                //     .filter(|(_, particle)| {
-                //         particle.location.x as usize == leveler.x
-                //             && particle.location.y as usize == leveler.y
-                //     })
-                //     .map(|(index, _)| index)
-                //     .take(num_particles_required.unsigned_abs())
-                //     .collect::<Vec<_>>();
+                let particles_to_remove = self
+                    .particles
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, particle)| {
+                        particle.location.x as usize == leveler.x
+                            && particle.location.y as usize == leveler.y
+                    })
+                    .map(|(index, _)| index)
+                    .take(num_particles_required.unsigned_abs())
+                    .collect::<Vec<_>>();
 
-                // for index in particles_to_remove.into_iter().rev() {
-                //     self.particles.remove(index);
-                // }
+                for index in particles_to_remove.into_iter().rev() {
+                    self.particles.remove(index);
+                }
             }
         }
     }
@@ -102,8 +102,8 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         self.air_pressures = [[0.0; HEIGHT]; WIDTH];
 
         for particle in self.particles.iter() {
-            self.air_pressures[particle.location.x as usize][particle.location.y as usize] +=
-                Self::AIR_PRESSURE_PER_PARTICLE;
+            let (x, y) = particle.tile_location::<WIDTH, HEIGHT>();
+            self.air_pressures[x][y] += Self::AIR_PRESSURE_PER_PARTICLE;
         }
     }
 
@@ -111,8 +111,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         const VELOCITY_CHANGE_RATE: f32 = 1.0;
 
         for particle in self.particles.iter_mut() {
-            let x = particle.location.x as usize;
-            let y = particle.location.y as usize;
+            let (x, y) = particle.tile_location::<WIDTH, HEIGHT>();
 
             let current_tile_pressure = self.air_pressures[x][y];
             let neighbours =
@@ -123,15 +122,17 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 let neighbour_center = vec2(nx as f32 + 0.5, ny as f32 + 0.5);
                 let neighbour_direction = (neighbour_center - particle.location).normalize();
                 let proximity_strenght = 1.0 / (neighbour_center - particle.location).length();
-                particle.velocity +=
-                    neighbour_direction * pressure_difference * proximity_strenght * VELOCITY_CHANGE_RATE * delta_time;
+                particle.velocity += neighbour_direction
+                    * pressure_difference
+                    * proximity_strenght
+                    * VELOCITY_CHANGE_RATE
+                    * delta_time;
             }
 
             particle.location += particle.velocity * delta_time;
-            particle.location = particle.location.clamp(
-                Vec2::ZERO,
-                vec2(WIDTH as f32 - 0.00001, HEIGHT as f32 - 0.00001),
-            );
+            particle.location = particle
+                .location
+                .clamp(Vec2::ZERO, vec2(WIDTH as f32, HEIGHT as f32));
         }
     }
 }
@@ -153,6 +154,15 @@ pub struct AirLeveler {
 pub struct Particle {
     location: glam::Vec2,
     velocity: glam::Vec2,
+}
+
+impl Particle {
+    fn tile_location<const WIDTH: usize, const HEIGHT: usize>(&self) -> (usize, usize) {
+        (
+            (self.location.x as usize).clamp(0, WIDTH - 1),
+            (self.location.y as usize).clamp(0, HEIGHT - 1),
+        )
+    }
 }
 
 #[cfg(test)]
