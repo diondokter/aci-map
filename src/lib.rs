@@ -1,22 +1,19 @@
-use std::ops::Add;
+use glam::{vec2, Vec2};
 
 #[derive(Debug, Clone)]
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
-    pub tiles: [[Tile; HEIGHT]; WIDTH],
+    air_pressures: [[f32; HEIGHT]; WIDTH],
+    particles: Vec<Particle>,
     pub air_levelers: Vec<AirLeveler>,
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
-    pub fn new(tiles: [[Tile; HEIGHT]; WIDTH], air_levelers: Vec<AirLeveler>) -> Self {
-        Self {
-            tiles,
-            air_levelers,
-        }
-    }
+    const AIR_PRESSURE_PER_PARTICLE: f32 = 0.001;
 
     pub const fn new_default() -> Self {
         Self {
-            tiles: [[Tile::new_default(); HEIGHT]; WIDTH],
+            air_pressures: [[0.0; HEIGHT]; WIDTH],
+            particles: Vec::new(),
             air_levelers: Vec::new(),
         }
     }
@@ -28,45 +25,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     }
 
     pub fn collect_air_pressure_map(&self) -> [[f32; HEIGHT]; WIDTH] {
-        let mut result = [[0.0; HEIGHT]; WIDTH];
-
-        for (x, y) in Self::all_tile_coords() {
-            result[x][y] = self.tiles[x][y]
-                .tile_type
-                .as_ground()
-                .map(|air| air.total())
-                .unwrap_or(f32::NAN);
-        }
-
-        result
-    }
-
-    pub fn collect_oxygen_map(&self) -> [[f32; HEIGHT]; WIDTH] {
-        let mut result = [[0.0; HEIGHT]; WIDTH];
-
-        for (x, y) in Self::all_tile_coords() {
-            result[x][y] = self.tiles[x][y]
-                .tile_type
-                .as_ground()
-                .map(|air| air.oxygen)
-                .unwrap_or(f32::NAN);
-        }
-
-        result
-    }
-
-    pub fn collect_fumes_map(&self) -> [[f32; HEIGHT]; WIDTH] {
-        let mut result = [[0.0; HEIGHT]; WIDTH];
-
-        for (x, y) in Self::all_tile_coords() {
-            result[x][y] = self.tiles[x][y]
-                .tile_type
-                .as_ground()
-                .map(|air| air.fumes)
-                .unwrap_or(f32::NAN);
-        }
-
-        result
+        self.air_pressures
     }
 
     fn neighbour_tile_coords(
@@ -96,114 +55,83 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         .filter_map(|t| t)
     }
 
-    fn neighbour_tiles(
-        &self,
-        target_tile_x: usize,
-        target_tile_y: usize,
-    ) -> impl Iterator<Item = (usize, usize, &Tile)> + Clone {
-        Self::neighbour_tile_coords(target_tile_x, target_tile_y)
-            .map(|(x, y)| (x, y, &self.tiles[x][y]))
-    }
-
     pub fn simulate(&mut self, delta_time: f32) {
-        let air_diff = self.calculate_air_diff(delta_time);
-        self.apply_air_diff(air_diff);
+        self.update_particles_existance();
+        self.update_air_pressure_map();
+        self.move_particles(delta_time);
     }
 
-    fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
-        let mut air_diff_result = [[AirDiff::default(); HEIGHT]; WIDTH];
+    fn update_particles_existance(&mut self) {
+        for leveler in self.air_levelers.iter() {
+            let air_pressure_difference =
+                leveler.target_air_pressure - self.air_pressures[leveler.x][leveler.y];
+            let num_particles_required =
+                (air_pressure_difference / Self::AIR_PRESSURE_PER_PARTICLE) as isize;
 
-        const PRESSURE_SPREAD_RATE: f32 = 4.0;
-        const DIFFUSION_SPREAD_RATE: f32 = 0.05;
-
-        // In this model we will 'give away' air pressure and oxygen.
-
-        for (x, y) in Self::all_tile_coords() {
-            let Some(air) = &self.tiles[x][y].tile_type.as_ground() else {
-                    continue;
-                };
-
-            let neighbour_airs = self
-                // Get all neighbours
-                .neighbour_tiles(x, y)
-                // Get only the ones that are ground
-                .filter_map(|(x, y, tile)| tile.tile_type.as_ground().map(|air| (x, y, air)));
-
-            let nitrogen_fraction = air.nitrogen / air.total();
-            let oxygen_fraction = air.oxygen / air.total();
-            let fumes_fraction = air.fumes / air.total();
-
-            for (nx, ny, neighbour_air) in neighbour_airs {
-                // Move air due to diffusion. We trade air equally. We give some, we take some
-                let nitrogen_needed_for_equal = nitrogen_fraction * neighbour_air.total();
-                let oxygen_needed_for_equal = oxygen_fraction * neighbour_air.total();
-                let fumes_needed_for_equal = fumes_fraction * neighbour_air.total();
-
-                let nitrogen_traded = nitrogen_needed_for_equal
-                    .clamp(-neighbour_air.nitrogen, air.nitrogen / 8.0)
-                    * DIFFUSION_SPREAD_RATE
-                    * delta_time;
-                let oxygen_traded = oxygen_needed_for_equal
-                    .clamp(-neighbour_air.oxygen, air.oxygen / 8.0)
-                    * DIFFUSION_SPREAD_RATE
-                    * delta_time;
-                let fumes_traded = fumes_needed_for_equal
-                    .clamp(-neighbour_air.fumes, air.fumes / 8.0)
-                    * DIFFUSION_SPREAD_RATE
-                    * delta_time;
-
-                air_diff_result[nx][ny].nitrogen += nitrogen_traded;
-                air_diff_result[nx][ny].oxygen += oxygen_traded;
-                air_diff_result[nx][ny].fumes += fumes_traded;
-
-                air_diff_result[x][y].nitrogen -= nitrogen_traded;
-                air_diff_result[x][y].oxygen -= oxygen_traded;
-                air_diff_result[x][y].fumes -= fumes_traded;
-
-                // Move air due to pressure difference
-                if neighbour_air.total() < air.total() {
-                    // It moves due to the total pressure difference, not the difference between each element separately
-                    let pressure_delta = air.total() - neighbour_air.total();
-                    let applied_pressure_delta =
-                        (pressure_delta * PRESSURE_SPREAD_RATE * delta_time).min(air.total() / 8.0);
-
-                    let nitrogen_delta = applied_pressure_delta * nitrogen_fraction;
-                    let oxygen_delta = applied_pressure_delta * oxygen_fraction;
-                    let fumes_delta = applied_pressure_delta * fumes_fraction;
-
-                    air_diff_result[nx][ny].nitrogen += nitrogen_delta;
-                    air_diff_result[nx][ny].oxygen += oxygen_delta;
-                    air_diff_result[nx][ny].fumes += fumes_delta;
-
-                    air_diff_result[x][y].nitrogen -= nitrogen_delta;
-                    air_diff_result[x][y].oxygen -= oxygen_delta;
-                    air_diff_result[x][y].fumes -= fumes_delta;
+            if num_particles_required >= 0 {
+                for _ in 0..num_particles_required {
+                    self.particles.push(Particle {
+                        location: Vec2::new(
+                            leveler.x as f32 + rand::random::<f32>(),
+                            leveler.y as f32 + rand::random::<f32>(),
+                        ),
+                        velocity: Vec2::ZERO,
+                    })
                 }
+            } else {
+                // let particles_to_remove = self
+                //     .particles
+                //     .iter()
+                //     .enumerate()
+                //     .filter(|(_, particle)| {
+                //         particle.location.x as usize == leveler.x
+                //             && particle.location.y as usize == leveler.y
+                //     })
+                //     .map(|(index, _)| index)
+                //     .take(num_particles_required.unsigned_abs())
+                //     .collect::<Vec<_>>();
+
+                // for index in particles_to_remove.into_iter().rev() {
+                //     self.particles.remove(index);
+                // }
             }
         }
-
-        air_diff_result
     }
 
-    fn apply_air_diff(&mut self, air_diff: [[AirDiff; HEIGHT]; WIDTH]) {
-        for (x, y) in Self::all_tile_coords() {
-            let Some(air) = self.tiles[x][y].tile_type.as_ground_mut() else {
-                    continue;
-                };
+    fn update_air_pressure_map(&mut self) {
+        self.air_pressures = [[0.0; HEIGHT]; WIDTH];
 
-            air.nitrogen = air.nitrogen.add(air_diff[x][y].nitrogen).max(0.0);
-            air.oxygen = air.oxygen.add(air_diff[x][y].oxygen).max(0.0);
-            air.fumes = air.fumes.add(air_diff[x][y].fumes).max(0.0);
+        for particle in self.particles.iter() {
+            self.air_pressures[particle.location.x as usize][particle.location.y as usize] +=
+                Self::AIR_PRESSURE_PER_PARTICLE;
         }
+    }
 
-        for air_leveler in self.air_levelers.iter() {
-            let Some(air) = self.tiles[air_leveler.x][air_leveler.y].tile_type.as_ground_mut() else {
-                continue;
-            };
+    fn move_particles(&mut self, delta_time: f32) {
+        const VELOCITY_CHANGE_RATE: f32 = 1.0;
 
-            air.nitrogen = air_leveler.nitrogen;
-            air.oxygen = air_leveler.oxygen;
-            air.fumes = air_leveler.fumes;
+        for particle in self.particles.iter_mut() {
+            let x = particle.location.x as usize;
+            let y = particle.location.y as usize;
+
+            let current_tile_pressure = self.air_pressures[x][y];
+            let neighbours =
+                Self::neighbour_tile_coords(x, y).map(|(x, y)| (x, y, self.air_pressures[x][y]));
+
+            for (nx, ny, n_pressure) in neighbours {
+                let pressure_difference = current_tile_pressure - n_pressure;
+                let neighbour_center = vec2(nx as f32 + 0.5, ny as f32 + 0.5);
+                let neighbour_direction = (neighbour_center - particle.location).normalize();
+                let proximity_strenght = 1.0 / (neighbour_center - particle.location).length();
+                particle.velocity +=
+                    neighbour_direction * pressure_difference * proximity_strenght * VELOCITY_CHANGE_RATE * delta_time;
+            }
+
+            particle.location += particle.velocity * delta_time;
+            particle.location = particle.location.clamp(
+                Vec2::ZERO,
+                vec2(WIDTH as f32 - 0.00001, HEIGHT as f32 - 0.00001),
+            );
         }
     }
 }
@@ -214,117 +142,17 @@ impl<const WIDTH: usize, const HEIGHT: usize> Default for Map<WIDTH, HEIGHT> {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug)]
-struct AirDiff {
-    nitrogen: f32,
-    oxygen: f32,
-    fumes: f32,
-}
-
-#[derive(Default, Clone, Copy, Debug)]
-pub struct Tile {
-    pub ground_level: f32,
-    /// In meters above ground level
-    pub liquid_level: f32,
-    pub liquid_type: LiquidType,
-    pub tile_type: TileType,
-}
-
-impl Tile {
-    pub fn new(
-        ground_level: f32,
-        liquid_level: f32,
-        liquid_type: LiquidType,
-        tile_type: TileType,
-    ) -> Self {
-        Self {
-            ground_level,
-            liquid_level,
-            liquid_type,
-            tile_type,
-        }
-    }
-
-    pub const fn new_default() -> Self {
-        Self {
-            ground_level: 0.0,
-            liquid_level: 0.0,
-            liquid_type: LiquidType::Water,
-            tile_type: TileType::Ground(AirData::new_default()),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum TileType {
-    Wall,
-    Ground(AirData),
-}
-
-impl Default for TileType {
-    fn default() -> Self {
-        TileType::Ground(AirData::new_default())
-    }
-}
-
-impl TileType {
-    pub fn as_ground(&self) -> Option<&AirData> {
-        if let Self::Ground(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-    pub fn as_ground_mut(&mut self) -> Option<&mut AirData> {
-        if let Self::Ground(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct AirData {
-    nitrogen: f32,
-    oxygen: f32,
-    fumes: f32,
-}
-
-impl AirData {
-    pub const fn new_default() -> Self {
-        Self {
-            nitrogen: 1.0,
-            oxygen: 0.0,
-            fumes: 0.0,
-        }
-    }
-
-    pub fn total(&self) -> f32 {
-        self.nitrogen + self.oxygen
-    }
-}
-
-impl Default for AirData {
-    fn default() -> Self {
-        Self::new_default()
-    }
-}
-
-#[derive(Default, Clone, Copy, Debug)]
-pub enum LiquidType {
-    #[default]
-    Water,
-    Lava,
-}
-
 #[derive(Debug, Clone)]
 pub struct AirLeveler {
     pub x: usize,
     pub y: usize,
-    pub nitrogen: f32,
-    pub oxygen: f32,
-    pub fumes: f32,
+    pub target_air_pressure: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct Particle {
+    location: glam::Vec2,
+    velocity: glam::Vec2,
 }
 
 #[cfg(test)]
@@ -416,89 +244,29 @@ mod tests {
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
                 let mut map = Map::<10, 10>::new_default();
-                map.air_levelers.push(AirLeveler {
-                    x: 9,
-                    y: 0,
-                    nitrogen: 0.79,
-                    oxygen: 0.00,
-                    fumes: 0.0,
-                });
-                map.air_levelers.push(AirLeveler {
-                    x: 0,
-                    y: 9,
-                    nitrogen: 0.79,
-                    oxygen: 0.21,
-                    fumes: 0.0,
-                });
+                // map.air_levelers.push(AirLeveler {
+                //     x: 9,
+                //     y: 0,
+                //     target_air_pressure: 1.00,
+                // });
+                // map.air_levelers.push(AirLeveler {
+                //     x: 0,
+                //     y: 9,
+                //     target_air_pressure: 1.00,
+                // });
                 map.air_levelers.push(AirLeveler {
                     x: 5,
                     y: 5,
-                    nitrogen: 0.78,
-                    oxygen: 0.21,
-                    fumes: 0.01,
+                    target_air_pressure: 1.00,
                 });
-                for i in 1..8 {
-                    map.tiles[1][i] = Tile {
-                        tile_type: TileType::Wall,
-                        ..Default::default()
-                    };
-                }
-                for i in 1..8 {
-                    map.tiles[i][1] = Tile {
-                        tile_type: TileType::Wall,
-                        ..Default::default()
-                    };
-                }
-                for i in 3..8 {
-                    map.tiles[3][i] = Tile {
-                        tile_type: TileType::Wall,
-                        ..Default::default()
-                    };
-                }
-                for i in 3..8 {
-                    map.tiles[i][3] = Tile {
-                        tile_type: TileType::Wall,
-                        ..Default::default()
-                    };
-                }
-                for i in 3..7 {
-                    map.tiles[7][i] = Tile {
-                        tile_type: TileType::Wall,
-                        ..Default::default()
-                    };
-                }
-                for i in 3..7 {
-                    map.tiles[i][7] = Tile {
-                        tile_type: TileType::Wall,
-                        ..Default::default()
-                    };
-                }
 
                 create_map_gif(
-                    "target/total_air_pressure.gif",
+                    "target/air_pressure.gif",
                     &mut map.clone(),
                     10000,
                     10,
                     |map| map.collect_air_pressure_map(),
                     1.0,
-                    0.05,
-                );
-                create_map_gif(
-                    "target/oxygen.gif",
-                    &mut map.clone(),
-                    10000,
-                    10,
-                    |map| map.collect_oxygen_map(),
-                    0.21,
-                    0.05,
-                );
-                create_map_gif(
-                    "target/fumes.gif",
-                    &mut map.clone(),
-                    10000,
-                    10,
-                    |map| map.collect_fumes_map(),
-                    0.01,
                     0.05,
                 );
             })
