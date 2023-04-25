@@ -24,7 +24,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     let mut g = c.benchmark_group("simulate");
-
+    g.warm_up_time(std::time::Duration::from_secs(15));
     g.throughput(criterion::Throughput::Elements(1));
     g.bench_function("500x500", |b| b.iter(|| simulate_map(black_box(&mut map))));
 }
