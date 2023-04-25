@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use aci_map::{AirLeveler, Map};
+use aci_map::Map;
 use criterion::{black_box, criterion_group, Criterion};
 
 fn simulate_map<const WIDTH: usize, const HEIGHT: usize>(map: &mut Map<WIDTH, HEIGHT>) {
@@ -10,18 +8,14 @@ fn simulate_map<const WIDTH: usize, const HEIGHT: usize>(map: &mut Map<WIDTH, HE
 fn criterion_benchmark(c: &mut Criterion) {
     let mut map: Map<500, 500> = Map::new_default();
 
-    for i in 0..500 {
-        map.air_levelers.push(AirLeveler {
-            x: i,
-            y: i,
-            target_air_pressure: 1.0,
-        });
+    for _ in 0..100000 {
+        map.insert_random_particle();
     }
 
     let mut g = c.benchmark_group("simulate");
-    g.measurement_time(Duration::from_secs(60));
-    g.throughput(criterion::Throughput::Elements(1));
-    g.bench_function("500x500", |b| b.iter(|| simulate_map(black_box(&mut map))));
+
+    g.throughput(criterion::Throughput::Elements(100000));
+    g.bench_function("500x500 @ 100000", |b| b.iter(|| simulate_map(black_box(&mut map))));
 }
 
 criterion_group!(benches, criterion_benchmark);

@@ -24,6 +24,16 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             .flatten()
     }
 
+    pub fn insert_random_particle(&mut self) {
+        self.particles.push(Particle {
+            location: vec2(
+                rand::random::<f32>() * WIDTH as f32,
+                rand::random::<f32>() * HEIGHT as f32,
+            ),
+            velocity: Vec2::ZERO,
+        })
+    }
+
     pub fn collect_air_pressure_map(&self) -> [[f32; HEIGHT]; WIDTH] {
         self.air_pressures
     }
