@@ -48,7 +48,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             result[x][y] = self.tiles[x][y]
                 .tile_type
                 .as_ground()
-                .map(|air| air.oxygen)
+                .map(|air| air.oxygen / air.total())
                 .unwrap_or(f32::NAN);
         }
 
@@ -62,7 +62,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             result[x][y] = self.tiles[x][y]
                 .tile_type
                 .as_ground()
-                .map(|air| air.fumes)
+                .map(|air| air.fumes / air.total())
                 .unwrap_or(f32::NAN);
         }
 
@@ -113,7 +113,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
         let mut air_diff_result = [[AirDiff::default(); HEIGHT]; WIDTH];
 
-        const PRESSURE_SPREAD_RATE: f32 = 4.0;
+        const PRESSURE_SPREAD_RATE: f32 = 0.01;
         const DIFFUSION_SPREAD_RATE: f32 = 0.05;
 
         // In this model we will 'give away' air pressure and oxygen.
@@ -165,7 +165,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                     // It moves due to the total pressure difference, not the difference between each element separately
                     let pressure_delta = air.total() - neighbour_air.total();
                     let applied_pressure_delta =
-                        (pressure_delta * PRESSURE_SPREAD_RATE * delta_time).min(air.total() / 8.0);
+                        (pressure_delta * PRESSURE_SPREAD_RATE * delta_time).sqrt().min(air.total() / 8.0);
 
                     let nitrogen_delta = applied_pressure_delta * nitrogen_fraction;
                     let oxygen_delta = applied_pressure_delta * oxygen_fraction;
@@ -294,8 +294,8 @@ pub struct AirData {
 impl AirData {
     pub const fn new_default() -> Self {
         Self {
-            nitrogen: 1.0,
-            oxygen: 0.0,
+            nitrogen: 0.79,
+            oxygen: 0.21,
             fumes: 0.0,
         }
     }
@@ -419,8 +419,8 @@ mod tests {
                 map.air_levelers.push(AirLeveler {
                     x: 9,
                     y: 0,
-                    nitrogen: 0.79,
-                    oxygen: 0.00,
+                    nitrogen: 0.79/2.0,
+                    oxygen: 0.21/2.0,
                     fumes: 0.0,
                 });
                 map.air_levelers.push(AirLeveler {
@@ -480,7 +480,7 @@ mod tests {
                     10000,
                     10,
                     |map| map.collect_air_pressure_map(),
-                    1.0,
+                    1.00,
                     0.05,
                 );
                 create_map_gif(
