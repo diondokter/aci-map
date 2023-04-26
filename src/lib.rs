@@ -4,13 +4,15 @@ use std::ops::Add;
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     pub tiles: [[Tile; HEIGHT]; WIDTH],
     pub air_levelers: Vec<AirLeveler>,
+    pub oxygen_users: Vec<OxygenUser>,
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
-    pub fn new(tiles: [[Tile; HEIGHT]; WIDTH], air_levelers: Vec<AirLeveler>) -> Self {
+    pub fn new(tiles: [[Tile; HEIGHT]; WIDTH], air_levelers: Vec<AirLeveler>, oxygen_users: Vec<OxygenUser>) -> Self {
         Self {
             tiles,
             air_levelers,
+            oxygen_users,
         }
     }
 
@@ -18,6 +20,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         Self {
             tiles: [[Tile::new_default(); HEIGHT]; WIDTH],
             air_levelers: Vec::new(),
+            oxygen_users: Vec::new(),
         }
     }
 
@@ -107,7 +110,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
     pub fn simulate(&mut self, delta_time: f32) {
         let air_diff = self.calculate_air_diff(delta_time);
-        self.apply_air_diff(air_diff);
+        self.apply_air_diff(air_diff, delta_time);
     }
 
     fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
@@ -185,7 +188,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         air_diff_result
     }
 
-    fn apply_air_diff(&mut self, air_diff: [[AirDiff; HEIGHT]; WIDTH]) {
+    fn apply_air_diff(&mut self, air_diff: [[AirDiff; HEIGHT]; WIDTH], delta_time: f32) {
         for (x, y) in Self::all_tile_coords() {
             let Some(air) = self.tiles[x][y].tile_type.as_ground_mut() else {
                     continue;
@@ -204,6 +207,27 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             air.nitrogen = air_leveler.nitrogen;
             air.oxygen = air_leveler.oxygen;
             air.fumes = air_leveler.fumes;
+        }
+
+        for oxygen_user in self.oxygen_users.iter() {
+            let Some(air) = self.tiles[oxygen_user.x][oxygen_user.y].tile_type.as_ground_mut() else {
+                continue;
+            };
+
+            if air.total() < oxygen_user.minimum_pressure_required {
+                continue;
+            }
+
+            if air.oxygen / air.total() < oxygen_user.minimum_oxygen_fraction_required {
+                continue;
+            }
+
+            if air.oxygen < oxygen_user.change_per_sec * delta_time {
+                continue;
+            }
+
+            air.oxygen -= oxygen_user.change_per_sec * delta_time;
+            air.fumes += oxygen_user.change_per_sec * delta_time;
         }
     }
 }
@@ -327,6 +351,15 @@ pub struct AirLeveler {
     pub fumes: f32,
 }
 
+#[derive(Debug, Clone)]
+pub struct OxygenUser {
+    pub x: usize,
+    pub y: usize,
+    pub minimum_pressure_required: f32,
+    pub minimum_oxygen_fraction_required: f32,
+    pub change_per_sec: f32,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs::File, path::Path};
@@ -430,12 +463,12 @@ mod tests {
                     oxygen: 0.21,
                     fumes: 0.0,
                 });
-                map.air_levelers.push(AirLeveler {
+                map.oxygen_users.push(OxygenUser {
                     x: 5,
                     y: 5,
-                    nitrogen: 0.78,
-                    oxygen: 0.21,
-                    fumes: 0.01,
+                    minimum_pressure_required: 0.1,
+                    minimum_oxygen_fraction_required: 0.10,
+                    change_per_sec: 0.001,
                 });
                 for i in 1..8 {
                     map.tiles[1][i] = Tile {
@@ -478,7 +511,7 @@ mod tests {
                     "target/total_air_pressure.gif",
                     &mut map.clone(),
                     10000,
-                    10,
+                    100,
                     |map| map.collect_air_pressure_map(),
                     1.00,
                     0.05,
@@ -487,7 +520,7 @@ mod tests {
                     "target/oxygen.gif",
                     &mut map.clone(),
                     10000,
-                    10,
+                    100,
                     |map| map.collect_oxygen_map(),
                     0.21,
                     0.05,
@@ -496,7 +529,7 @@ mod tests {
                     "target/fumes.gif",
                     &mut map.clone(),
                     10000,
-                    10,
+                    100,
                     |map| map.collect_fumes_map(),
                     0.01,
                     0.05,

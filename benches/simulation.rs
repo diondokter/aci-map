@@ -1,4 +1,4 @@
-use aci_map::{AirLeveler, Map};
+use aci_map::{AirLeveler, Map, OxygenUser};
 use criterion::{black_box, criterion_group, Criterion};
 
 fn simulate_map<const WIDTH: usize, const HEIGHT: usize>(map: &mut Map<WIDTH, HEIGHT>) {
@@ -18,9 +18,16 @@ fn criterion_benchmark(c: &mut Criterion) {
     map.air_levelers.push(AirLeveler {
         x: 9,
         y: 9,
-        nitrogen: 0.78,
+        nitrogen: 0.79,
         oxygen: 0.21,
-        fumes: 0.01,
+        fumes: 0.00,
+    });
+    map.oxygen_users.push(OxygenUser {
+        x: 50,
+        y: 50,
+        minimum_pressure_required: 0.1,
+        minimum_oxygen_fraction_required: 0.1,
+        change_per_sec: 0.001,
     });
 
     let mut g = c.benchmark_group("simulate");
