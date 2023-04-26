@@ -325,7 +325,7 @@ impl AirData {
     }
 
     pub fn total(&self) -> f32 {
-        self.nitrogen + self.oxygen
+        self.nitrogen + self.oxygen + self.fumes
     }
 }
 
