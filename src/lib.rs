@@ -1,4 +1,9 @@
-use std::ops::Add;
+#![feature(portable_simd)]
+
+use std::{
+    ops::Add,
+    simd::{f32x4, SimdFloat},
+};
 
 #[derive(Debug, Clone)]
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
@@ -8,7 +13,11 @@ pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
-    pub fn new(tiles: [[Tile; HEIGHT]; WIDTH], air_levelers: Vec<AirLeveler>, oxygen_users: Vec<OxygenUser>) -> Self {
+    pub fn new(
+        tiles: [[Tile; HEIGHT]; WIDTH],
+        air_levelers: Vec<AirLeveler>,
+        oxygen_users: Vec<OxygenUser>,
+    ) -> Self {
         Self {
             tiles,
             air_levelers,
@@ -132,55 +141,37 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 // Get only the ones that are ground
                 .filter_map(|(x, y, tile)| tile.tile_type.as_ground().map(|air| (x, y, air)));
 
-            let nitrogen_fraction = air.nitrogen / air.total();
-            let oxygen_fraction = air.oxygen / air.total();
-            let fumes_fraction = air.fumes / air.total();
+            let air_total = f32x4::splat(air.total());
+            let air_pressures = air.as_simd_vector();
+
+            let air_fractions = air_pressures / air_total;
 
             for (nx, ny, neighbour_air) in neighbour_airs {
                 // Move air due to diffusion. We trade air equally. We give some, we take some
-                let nitrogen_needed_for_equal = nitrogen_fraction * neighbour_air.total();
-                let oxygen_needed_for_equal = oxygen_fraction * neighbour_air.total();
-                let fumes_needed_for_equal = fumes_fraction * neighbour_air.total();
+                let air_needed_for_equal = air_fractions * f32x4::splat(neighbour_air.total());
 
-                let nitrogen_traded = nitrogen_needed_for_equal
-                    .clamp(-neighbour_air.nitrogen, air.nitrogen / 8.0)
-                    * DIFFUSION_SPREAD_RATE
-                    * delta_time;
-                let oxygen_traded = oxygen_needed_for_equal
-                    .clamp(-neighbour_air.oxygen, air.oxygen / 8.0)
-                    * DIFFUSION_SPREAD_RATE
-                    * delta_time;
-                let fumes_traded = fumes_needed_for_equal
-                    .clamp(-neighbour_air.fumes, air.fumes / 8.0)
-                    * DIFFUSION_SPREAD_RATE
-                    * delta_time;
+                let clamp_min = -neighbour_air.as_simd_vector();
+                let clamp_max = air_pressures / f32x4::splat(8.0);
 
-                air_diff_result[nx][ny].nitrogen += nitrogen_traded;
-                air_diff_result[nx][ny].oxygen += oxygen_traded;
-                air_diff_result[nx][ny].fumes += fumes_traded;
+                let air_traded = air_needed_for_equal.simd_clamp(clamp_min, clamp_max)
+                    * f32x4::splat(DIFFUSION_SPREAD_RATE * delta_time);
 
-                air_diff_result[x][y].nitrogen -= nitrogen_traded;
-                air_diff_result[x][y].oxygen -= oxygen_traded;
-                air_diff_result[x][y].fumes -= fumes_traded;
+                air_diff_result[nx][ny].add_simd_air(air_traded);
+                air_diff_result[x][y].add_simd_air(-air_traded);
 
                 // Move air due to pressure difference
                 if neighbour_air.total() < air.total() {
                     // It moves due to the total pressure difference, not the difference between each element separately
                     let pressure_delta = air.total() - neighbour_air.total();
                     let applied_pressure_delta =
-                        (pressure_delta * PRESSURE_SPREAD_RATE * delta_time).sqrt().min(air.total() / 8.0);
+                        (pressure_delta * PRESSURE_SPREAD_RATE * delta_time)
+                            .sqrt()
+                            .min(air.total() / 8.0);
 
-                    let nitrogen_delta = applied_pressure_delta * nitrogen_fraction;
-                    let oxygen_delta = applied_pressure_delta * oxygen_fraction;
-                    let fumes_delta = applied_pressure_delta * fumes_fraction;
+                    let air_delta = f32x4::splat(applied_pressure_delta) * air_fractions;
 
-                    air_diff_result[nx][ny].nitrogen += nitrogen_delta;
-                    air_diff_result[nx][ny].oxygen += oxygen_delta;
-                    air_diff_result[nx][ny].fumes += fumes_delta;
-
-                    air_diff_result[x][y].nitrogen -= nitrogen_delta;
-                    air_diff_result[x][y].oxygen -= oxygen_delta;
-                    air_diff_result[x][y].fumes -= fumes_delta;
+                    air_diff_result[nx][ny].add_simd_air(air_delta);
+                    air_diff_result[x][y].add_simd_air(-air_delta);
                 }
             }
         }
@@ -243,6 +234,15 @@ struct AirDiff {
     nitrogen: f32,
     oxygen: f32,
     fumes: f32,
+}
+
+impl AirDiff {
+    fn add_simd_air(&mut self, data: f32x4) {
+        let data = data.as_array();
+        self.nitrogen += data[0];
+        self.oxygen += data[1];
+        self.fumes += data[2];
+    }
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -322,6 +322,10 @@ impl AirData {
             oxygen: 0.21,
             fumes: 0.0,
         }
+    }
+
+    pub fn as_simd_vector(&self) -> f32x4 {
+        f32x4::from_array([self.nitrogen, self.oxygen, self.fumes, 0.0])
     }
 
     pub fn total(&self) -> f32 {
@@ -452,8 +456,8 @@ mod tests {
                 map.air_levelers.push(AirLeveler {
                     x: 9,
                     y: 0,
-                    nitrogen: 0.79/2.0,
-                    oxygen: 0.21/2.0,
+                    nitrogen: 0.79 / 2.0,
+                    oxygen: 0.21 / 2.0,
                     fumes: 0.0,
                 });
                 map.air_levelers.push(AirLeveler {
