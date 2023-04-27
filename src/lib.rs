@@ -5,6 +5,7 @@ pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     pub tiles: [[Tile; HEIGHT]; WIDTH],
     pub air_levelers: Vec<AirLeveler>,
     pub oxygen_users: Vec<OxygenUser>,
+    pub liquid_levelers: Vec<LiquidLeveler>,
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
@@ -12,11 +13,13 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         tiles: [[Tile; HEIGHT]; WIDTH],
         air_levelers: Vec<AirLeveler>,
         oxygen_users: Vec<OxygenUser>,
+        liquid_levelers: Vec<LiquidLeveler>,
     ) -> Self {
         Self {
             tiles,
             air_levelers,
             oxygen_users,
+            liquid_levelers,
         }
     }
 
@@ -25,10 +28,11 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             tiles: [[Tile::new_default(); HEIGHT]; WIDTH],
             air_levelers: Vec::new(),
             oxygen_users: Vec::new(),
+            liquid_levelers: Vec::new(),
         }
     }
 
-    fn all_tile_coords() -> impl Iterator<Item = (usize, usize)> {
+    pub fn all_tile_coords() -> impl Iterator<Item = (usize, usize)> {
         (0..WIDTH)
             .map(|x| (0..HEIGHT).map(move |y| (x, y)))
             .flatten()
@@ -40,8 +44,8 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         for (x, y) in Self::all_tile_coords() {
             result[x][y] = self.tiles[x][y]
                 .tile_type
-                .as_ground()
-                .map(|air| air.total())
+                .get_ground()
+                .map(|(air, liquids)| air.air_pressure(liquids.get_level::<Any>()))
                 .unwrap_or(f32::NAN);
         }
 
@@ -54,8 +58,8 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         for (x, y) in Self::all_tile_coords() {
             result[x][y] = self.tiles[x][y]
                 .tile_type
-                .as_ground()
-                .map(|air| air.oxygen / air.total())
+                .get_air()
+                .map(|air, | air.oxygen_fraction())
                 .unwrap_or(f32::NAN);
         }
 
@@ -68,9 +72,33 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         for (x, y) in Self::all_tile_coords() {
             result[x][y] = self.tiles[x][y]
                 .tile_type
-                .as_ground()
-                .map(|air| air.fumes / air.total())
+                .get_air()
+                .map(|air| air.fumes_fraction())
                 .unwrap_or(f32::NAN);
+        }
+
+        result
+    }
+
+    pub fn collect_liquids_map<L: Liquid>(&self) -> [[f32; HEIGHT]; WIDTH] {
+        let mut result = [[0.0; HEIGHT]; WIDTH];
+
+        for (x, y) in Self::all_tile_coords() {
+            result[x][y] = self.tiles[x][y]
+                .tile_type
+                .get_liquids()
+                .map(|liquids| liquids.get_level::<L>())
+                .unwrap_or(f32::NAN);
+        }
+
+        result
+    }
+
+    pub fn collect_ground_level_map(&self) -> [[f32; HEIGHT]; WIDTH] {
+        let mut result = [[0.0; HEIGHT]; WIDTH];
+
+        for (x, y) in Self::all_tile_coords() {
+            result[x][y] = self.tiles[x][y].ground_level;
         }
 
         result
@@ -113,8 +141,18 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     }
 
     pub fn simulate(&mut self, delta_time: f32) {
-        let air_diff = self.calculate_air_diff(delta_time);
+        let mut air_diff = [[AirDiff::default(); HEIGHT]; WIDTH];
+        let mut water_diff = [[0.0; HEIGHT]; WIDTH];
+        let mut lava_diff = [[0.0; HEIGHT]; WIDTH];
+
+        rayon::scope(|s| {
+            s.spawn(|_| air_diff = self.calculate_air_diff(delta_time));
+            s.spawn(|_| water_diff = self.calculate_liquid_diff::<Water>(delta_time));
+            s.spawn(|_| lava_diff = self.calculate_liquid_diff::<Lava>(delta_time));
+        });
+
         self.apply_air_diff(air_diff, delta_time);
+        self.apply_liquid_diff(water_diff, lava_diff);
     }
 
     fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
@@ -126,25 +164,34 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         // In this model we will 'give away' air pressure and oxygen.
 
         for (x, y) in Self::all_tile_coords() {
-            let Some(air) = &self.tiles[x][y].tile_type.as_ground() else {
+            let Some((air, liquids)) = self.tiles[x][y].tile_type.get_ground() else {
                     continue;
                 };
+
+            let air_pressure = air.air_pressure(liquids.get_level::<Any>());
 
             let neighbour_airs = self
                 // Get all neighbours
                 .neighbour_tiles(x, y)
                 // Get only the ones that are ground
-                .filter_map(|(x, y, tile)| tile.tile_type.as_ground().map(|air| (x, y, air)));
+                .filter_map(|(x, y, tile)| {
+                    tile.tile_type
+                        .get_ground()
+                        .map(|(air, liquids)| (x, y, air, liquids))
+                });
 
-            let nitrogen_fraction = air.nitrogen / air.total();
-            let oxygen_fraction = air.oxygen / air.total();
-            let fumes_fraction = air.fumes / air.total();
+            let nitrogen_fraction = air.nitrogen_fraction();
+            let oxygen_fraction = air.oxygen_fraction();
+            let fumes_fraction = air.fumes_fraction();
 
-            for (nx, ny, neighbour_air) in neighbour_airs {
+            for (nx, ny, neighbour_air, neighbour_liquids) in neighbour_airs {
+                let neighbour_air_pressure =
+                    neighbour_air.air_pressure(neighbour_liquids.get_level::<Any>());
+
                 // Move air due to diffusion. We trade air equally. We give some, we take some
-                let nitrogen_needed_for_equal = nitrogen_fraction * neighbour_air.total();
-                let oxygen_needed_for_equal = oxygen_fraction * neighbour_air.total();
-                let fumes_needed_for_equal = fumes_fraction * neighbour_air.total();
+                let nitrogen_needed_for_equal = nitrogen_fraction * neighbour_air_pressure;
+                let oxygen_needed_for_equal = oxygen_fraction * neighbour_air_pressure;
+                let fumes_needed_for_equal = fumes_fraction * neighbour_air_pressure;
 
                 let nitrogen_traded = nitrogen_needed_for_equal
                     .clamp(-neighbour_air.nitrogen, air.nitrogen / 8.0)
@@ -168,13 +215,12 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 air_diff_result[x][y].fumes -= fumes_traded;
 
                 // Move air due to pressure difference
-                if neighbour_air.total() < air.total() {
+                if neighbour_air_pressure < air_pressure {
                     // It moves due to the total pressure difference, not the difference between each element separately
-                    let pressure_delta = air.total() - neighbour_air.total();
-                    let applied_pressure_delta =
-                        (pressure_delta * PRESSURE_SPREAD_RATE * delta_time)
-                            .sqrt()
-                            .min(air.total() / 8.0);
+                    let pressure_delta = air_pressure - neighbour_air_pressure;
+                    let applied_pressure_delta = ((pressure_delta * PRESSURE_SPREAD_RATE).sqrt()
+                        * delta_time)
+                        .min(air_pressure / 8.0);
 
                     let nitrogen_delta = applied_pressure_delta * nitrogen_fraction;
                     let oxygen_delta = applied_pressure_delta * oxygen_fraction;
@@ -196,7 +242,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
     fn apply_air_diff(&mut self, air_diff: [[AirDiff; HEIGHT]; WIDTH], delta_time: f32) {
         for (x, y) in Self::all_tile_coords() {
-            let Some(air) = self.tiles[x][y].tile_type.as_ground_mut() else {
+            let Some(air) = self.tiles[x][y].tile_type.get_air_mut() else {
                     continue;
                 };
 
@@ -206,7 +252,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         }
 
         for air_leveler in self.air_levelers.iter() {
-            let Some(air) = self.tiles[air_leveler.x][air_leveler.y].tile_type.as_ground_mut() else {
+            let Some(air) = self.tiles[air_leveler.x][air_leveler.y].tile_type.get_air_mut() else {
                 continue;
             };
 
@@ -216,15 +262,17 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         }
 
         for oxygen_user in self.oxygen_users.iter() {
-            let Some(air) = self.tiles[oxygen_user.x][oxygen_user.y].tile_type.as_ground_mut() else {
+            let Some((air, liquids)) = self.tiles[oxygen_user.x][oxygen_user.y].tile_type.get_ground_mut() else {
                 continue;
             };
 
-            if air.total() < oxygen_user.minimum_pressure_required {
+            let air_pressure = air.air_pressure(liquids.get_level::<Any>());
+
+            if air_pressure < oxygen_user.minimum_pressure_required {
                 continue;
             }
 
-            if air.oxygen / air.total() < oxygen_user.minimum_oxygen_fraction_required {
+            if air.oxygen / air_pressure < oxygen_user.minimum_oxygen_fraction_required {
                 continue;
             }
 
@@ -234,6 +282,90 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
             air.oxygen -= oxygen_user.change_per_sec * delta_time;
             air.fumes += oxygen_user.change_per_sec * delta_time;
+        }
+    }
+
+    fn calculate_liquid_diff<L: Liquid>(&self, delta_time: f32) -> [[f32; HEIGHT]; WIDTH] {
+        let mut liquid_diff_result = [[0.0; HEIGHT]; WIDTH];
+
+        for (x, y) in Self::all_tile_coords() {
+            let Some(liquids) = self.tiles[x][y].tile_type.get_liquids() else {
+                continue;
+            };
+            let ground_level = self.tiles[x][y].ground_level;
+            let liquid_level = liquids.get_level::<L>();
+            let total_level = ground_level + liquid_level;
+
+            if liquid_level < L::MINIMAL_HEIGHT_TO_SPREAD {
+                continue;
+            }
+
+            let neighbour_liquids = self
+                // Get all neighbours
+                .neighbour_tiles(x, y)
+                // Get only the ones that are ground
+                .filter_map(|(x, y, tile)| {
+                    tile.tile_type
+                        .get_liquids()
+                        .map(|liquids| (x, y, tile.ground_level, liquids.get_level::<L>()))
+                });
+
+            for (nx, ny, neighbour_ground_level, neighbour_liquid_level) in neighbour_liquids {
+                let neighbour_total_level = neighbour_ground_level + neighbour_liquid_level;
+                if neighbour_total_level >= total_level
+                    || neighbour_liquid_level >= LiquidData::MAX_LEVEL
+                {
+                    continue;
+                }
+
+                let height_delta = total_level - neighbour_total_level;
+                let applied_height_delta =
+                    ((height_delta * L::SPREAD_RATE).sqrt() * delta_time).min(liquid_level / 0.8);
+
+                liquid_diff_result[nx][ny] += applied_height_delta;
+                liquid_diff_result[x][y] -= applied_height_delta;
+            }
+        }
+
+        liquid_diff_result
+    }
+
+    fn apply_liquid_diff(
+        &mut self,
+        water_diff: [[f32; HEIGHT]; WIDTH],
+        lava_diff: [[f32; HEIGHT]; WIDTH],
+    ) {
+        for (x, y) in Self::all_tile_coords() {
+            let Some(liquids) = self.tiles[x][y].tile_type.get_liquids_mut() else {
+                    continue;
+                };
+
+            let new_water_level = (liquids.get_level::<Water>() + water_diff[x][y]).max(0.0);
+            let new_lava_level = (liquids.get_level::<Lava>() + lava_diff[x][y]).max(0.0);
+
+            *liquids = if new_water_level == 0.0 && new_lava_level == 0.0 {
+                LiquidData::None
+            } else {
+                let difference = new_water_level - new_lava_level;
+
+                if new_water_level > 0.0 && new_lava_level > 0.0 {
+                    self.tiles[x][y].ground_level += difference.abs();
+                }
+
+                if difference >= 0.0 {
+                    LiquidData::Water { level: difference }
+                } else {
+                    LiquidData::Lava { level: -difference }
+                }
+            }
+        }
+
+        for liquid_leveler in self.liquid_levelers.iter() {
+            let Some(liquids) = self.tiles[liquid_leveler.x][liquid_leveler.y].tile_type.get_liquids_mut() else {
+                continue;
+            };
+
+            *liquids = liquid_leveler.target;
         }
     }
 }
@@ -251,26 +383,16 @@ struct AirDiff {
     fumes: f32,
 }
 
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Tile {
     pub ground_level: f32,
-    /// In meters above ground level
-    pub liquid_level: f32,
-    pub liquid_type: LiquidType,
     pub tile_type: TileType,
 }
 
 impl Tile {
-    pub fn new(
-        ground_level: f32,
-        liquid_level: f32,
-        liquid_type: LiquidType,
-        tile_type: TileType,
-    ) -> Self {
+    pub fn new(ground_level: f32, tile_type: TileType) -> Self {
         Self {
             ground_level,
-            liquid_level,
-            liquid_type,
             tile_type,
         }
     }
@@ -278,42 +400,88 @@ impl Tile {
     pub const fn new_default() -> Self {
         Self {
             ground_level: 0.0,
-            liquid_level: 0.0,
-            liquid_type: LiquidType::Water,
-            tile_type: TileType::Ground(AirData::new_default()),
+            tile_type: TileType::new_default(),
         }
+    }
+}
+
+impl Default for Tile {
+    fn default() -> Self {
+        Self::new_default()
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum TileType {
     Wall,
-    Ground(AirData),
+    Ground { air: AirData, liquids: LiquidData },
+}
+
+impl TileType {
+    pub const fn new_default() -> Self {
+        TileType::Ground {
+            air: AirData::new_default(),
+            liquids: LiquidData::new_default(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn get_ground(&self) -> Option<(&AirData, &LiquidData)> {
+        if let Self::Ground { air, liquids } = self {
+            Some((air, liquids))
+        } else {
+            None
+        }
+    }
+    #[inline(always)]
+    pub fn get_ground_mut(&mut self) -> Option<(&mut AirData, &mut LiquidData)> {
+        if let Self::Ground { air, liquids } = self {
+            Some((air, liquids))
+        } else {
+            None
+        }
+    }
+
+    #[inline(always)]
+    pub fn get_air(&self) -> Option<&AirData> {
+        if let Self::Ground { air, .. } = self {
+            Some(air)
+        } else {
+            None
+        }
+    }
+    #[inline(always)]
+    pub fn get_air_mut(&mut self) -> Option<&mut AirData> {
+        if let Self::Ground { air, .. } = self {
+            Some(air)
+        } else {
+            None
+        }
+    }
+
+    #[inline(always)]
+    pub fn get_liquids(&self) -> Option<&LiquidData> {
+        if let Self::Ground { liquids, .. } = self {
+            Some(liquids)
+        } else {
+            None
+        }
+    }
+    #[inline(always)]
+    pub fn get_liquids_mut(&mut self) -> Option<&mut LiquidData> {
+        if let Self::Ground { liquids, .. } = self {
+            Some(liquids)
+        } else {
+            None
+        }
+    }
 }
 
 impl Default for TileType {
     fn default() -> Self {
-        TileType::Ground(AirData::new_default())
+        Self::new_default()
     }
 }
-
-impl TileType {
-    pub fn as_ground(&self) -> Option<&AirData> {
-        if let Self::Ground(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-    pub fn as_ground_mut(&mut self) -> Option<&mut AirData> {
-        if let Self::Ground(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct AirData {
     nitrogen: f32,
@@ -330,8 +498,25 @@ impl AirData {
         }
     }
 
-    pub fn total(&self) -> f32 {
-        self.nitrogen + self.oxygen + self.fumes
+    #[inline(always)]
+    pub fn nitrogen_fraction(&self) -> f32 {
+        self.nitrogen / (self.nitrogen + self.oxygen + self.fumes)
+    }
+
+    #[inline(always)]
+    pub fn oxygen_fraction(&self) -> f32 {
+        self.oxygen / (self.nitrogen + self.oxygen + self.fumes)
+    }
+
+    #[inline(always)]
+    pub fn fumes_fraction(&self) -> f32 {
+        self.fumes / (self.nitrogen + self.oxygen + self.fumes)
+    }
+
+    #[inline(always)]
+    pub fn air_pressure(&self, liquid_level: f32) -> f32 {
+        (self.nitrogen + self.oxygen + self.fumes)
+            / (1.0 - liquid_level / LiquidData::MAX_LEVEL).max(0.001)
     }
 }
 
@@ -341,11 +526,85 @@ impl Default for AirData {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug)]
-pub enum LiquidType {
-    #[default]
-    Water,
-    Lava,
+#[derive(Clone, Copy, Debug)]
+pub enum LiquidData {
+    None,
+    Water { level: f32 },
+    Lava { level: f32 },
+}
+
+impl LiquidData {
+    const MAX_LEVEL: f32 = 3.0;
+
+    pub const fn new_default() -> Self {
+        Self::None
+    }
+
+    #[inline(always)]
+    fn get_level<L: Liquid>(&self) -> f32 {
+        self.get_level_optional::<L>().unwrap_or_default()
+    }
+
+    #[inline(always)]
+    fn get_level_optional<L: Liquid>(&self) -> Option<f32> {
+        L::get_level(self)
+    }
+}
+
+impl Default for LiquidData {
+    fn default() -> Self {
+        Self::new_default()
+    }
+}
+
+pub trait Liquid {
+    const SPREAD_RATE: f32;
+    const MINIMAL_HEIGHT_TO_SPREAD: f32;
+
+    fn get_level(data: &LiquidData) -> Option<f32>;
+}
+
+struct Any;
+impl Liquid for Any {
+    const SPREAD_RATE: f32 = 0.0;
+    const MINIMAL_HEIGHT_TO_SPREAD: f32 = 0.0;
+
+    #[inline(always)]
+    fn get_level(data: &LiquidData) -> Option<f32> {
+        match data {
+            LiquidData::None => None,
+            LiquidData::Water { level } => Some(*level),
+            LiquidData::Lava { level } => Some(*level),
+        }
+    }
+}
+
+struct Water;
+impl Liquid for Water {
+    const SPREAD_RATE: f32 = 0.01;
+    const MINIMAL_HEIGHT_TO_SPREAD: f32 = 0.01;
+
+    #[inline(always)]
+    fn get_level(data: &LiquidData) -> Option<f32> {
+        match data {
+            LiquidData::Water { level } => Some(*level),
+            _ => None,
+        }
+    }
+}
+
+struct Lava;
+impl Liquid for Lava {
+    const SPREAD_RATE: f32 = 0.001;
+    const MINIMAL_HEIGHT_TO_SPREAD: f32 = 0.1;
+
+    #[inline(always)]
+    fn get_level(data: &LiquidData) -> Option<f32> {
+        match data {
+            LiquidData::Lava { level } => Some(*level),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -364,6 +623,13 @@ pub struct OxygenUser {
     pub minimum_pressure_required: f32,
     pub minimum_oxygen_fraction_required: f32,
     pub change_per_sec: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct LiquidLeveler {
+    pub x: usize,
+    pub y: usize,
+    pub target: LiquidData,
 }
 
 #[cfg(test)]
@@ -407,6 +673,13 @@ mod tests {
         assert_eq!(neighbours.len(), 2);
     }
 
+    fn all_tile_coords_gif<const WIDTH: usize, const HEIGHT: usize>(
+    ) -> impl Iterator<Item = (usize, usize)> {
+        (0..HEIGHT)
+            .map(|y| (0..WIDTH).map(move |x| (x, y)))
+            .flatten()
+    }
+
     fn create_map_gif<const WIDTH: usize, const HEIGHT: usize>(
         path: impl AsRef<Path>,
         map: &mut Map<WIDTH, HEIGHT>,
@@ -414,6 +687,7 @@ mod tests {
         frame_every_nth: usize,
         mut data_step: impl FnMut(&Map<WIDTH, HEIGHT>) -> [[f32; HEIGHT]; WIDTH],
         max_value: f32,
+        min_value: f32,
         delta_time: f32,
     ) {
         let mut image = File::create(path).unwrap();
@@ -425,14 +699,16 @@ mod tests {
                 let data = data_step(&map);
 
                 let mut pixels = vec![0; WIDTH * HEIGHT * 3];
-                for (i, (x, y)) in Map::<WIDTH, HEIGHT>::all_tile_coords().enumerate() {
+                for (i, (x, y)) in all_tile_coords_gif::<WIDTH, HEIGHT>().enumerate() {
                     if data[x][y].is_nan() {
                         continue;
                     }
+
+                    let fraction = (data[x][y] - min_value) / (max_value - min_value);
+
                     pixels[i * 3 + 0] =
-                        ((1.0 - data[x][y] / max_value).powf(0.1) * 255.0).clamp(0.0, 255.0) as u8;
-                    pixels[i * 3 + 1] =
-                        ((data[x][y] / max_value).powf(0.1) * 255.0).clamp(0.0, 255.0) as u8;
+                        ((1.0 - fraction).powf(0.1) * 255.0).clamp(0.0, 255.0) as u8;
+                    pixels[i * 3 + 1] = (fraction.powf(0.1) * 255.0).clamp(0.0, 255.0) as u8;
                     pixels[i * 3 + 2] = if data[x][y] > max_value { 255 } else { 0 };
                 }
                 encoder
@@ -454,17 +730,17 @@ mod tests {
             .name("TestThread".into())
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
-                let mut map = Map::<10, 10>::new_default();
+                let mut map = Map::<20, 10>::new_default();
                 map.air_levelers.push(AirLeveler {
-                    x: 9,
-                    y: 0,
+                    x: 0,
+                    y: 9,
                     nitrogen: 0.79 / 2.0,
                     oxygen: 0.21 / 2.0,
                     fumes: 0.0,
                 });
                 map.air_levelers.push(AirLeveler {
-                    x: 0,
-                    y: 9,
+                    x: 9,
+                    y: 0,
                     nitrogen: 0.79,
                     oxygen: 0.21,
                     fumes: 0.0,
@@ -474,8 +750,24 @@ mod tests {
                     y: 5,
                     minimum_pressure_required: 0.1,
                     minimum_oxygen_fraction_required: 0.10,
-                    change_per_sec: 0.001,
+                    change_per_sec: 0.0001,
                 });
+
+                map.liquid_levelers.push(LiquidLeveler {
+                    x: 19,
+                    y: 0,
+                    target: LiquidData::Water { level: 1.0 },
+                });
+                map.liquid_levelers.push(LiquidLeveler {
+                    x: 19,
+                    y: 9,
+                    target: LiquidData::Lava { level: 1.0 },
+                });
+
+                for (x, y) in Map::<20, 10>::all_tile_coords().filter(|(x, _)| *x > 10) {
+                    map.tiles[x][y].ground_level = -1.1;
+                }
+
                 for i in 1..8 {
                     map.tiles[1][i] = Tile {
                         tile_type: TileType::Wall,
@@ -513,31 +805,67 @@ mod tests {
                     };
                 }
 
+                const ITERS: usize = 10000;
+                const NTH: usize = 10;
+
                 create_map_gif(
                     "target/total_air_pressure.gif",
                     &mut map.clone(),
-                    10000,
-                    100,
+                    ITERS,
+                    NTH,
                     |map| map.collect_air_pressure_map(),
                     1.00,
+                    0.0,
                     0.05,
                 );
                 create_map_gif(
                     "target/oxygen.gif",
                     &mut map.clone(),
-                    10000,
-                    100,
+                    ITERS,
+                    NTH,
                     |map| map.collect_oxygen_map(),
                     0.21,
+                    0.0,
                     0.05,
                 );
                 create_map_gif(
                     "target/fumes.gif",
                     &mut map.clone(),
-                    10000,
-                    100,
+                    ITERS,
+                    NTH,
                     |map| map.collect_fumes_map(),
                     0.01,
+                    0.0,
+                    0.05,
+                );
+                create_map_gif(
+                    "target/water.gif",
+                    &mut map.clone(),
+                    ITERS,
+                    NTH,
+                    |map| map.collect_liquids_map::<Water>(),
+                    3.0,
+                    0.0,
+                    0.05,
+                );
+                create_map_gif(
+                    "target/lava.gif",
+                    &mut map.clone(),
+                    ITERS,
+                    NTH,
+                    |map| map.collect_liquids_map::<Lava>(),
+                    3.0,
+                    0.0,
+                    0.05,
+                );
+                create_map_gif(
+                    "target/ground_level.gif",
+                    &mut map.clone(),
+                    ITERS,
+                    NTH,
+                    |map| map.collect_ground_level_map(),
+                    0.0,
+                    -1.1,
                     0.05,
                 );
             })
