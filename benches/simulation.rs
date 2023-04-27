@@ -1,4 +1,4 @@
-use aci_map::{AirLeveler, Map, OxygenUser, LiquidLeveler, LiquidData};
+use aci_map::{AirLeveler, LiquidData, LiquidLeveler, Map, OxygenUser};
 use criterion::{black_box, criterion_group, Criterion};
 
 fn simulate_map<const WIDTH: usize, const HEIGHT: usize>(map: &mut Map<WIDTH, HEIGHT>) {
@@ -41,7 +41,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         target: LiquidData::Lava { level: 1.0 },
     });
 
-    for (x, y) in Map::<500, 500>::all_tile_coords().filter(|(x, y)| *x > 90 && *x < 120 && *y < 20) {
+    for (x, y) in Map::<500, 500>::all_tile_coords().filter(|(x, y)| *x > 90 && *x < 120 && *y < 20)
+    {
         map.tiles[x][y].ground_level = -1.1;
     }
 

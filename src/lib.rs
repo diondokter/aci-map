@@ -59,7 +59,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             result[x][y] = self.tiles[x][y]
                 .tile_type
                 .get_air()
-                .map(|air, | air.oxygen_fraction())
+                .map(|air| air.oxygen_fraction())
                 .unwrap_or(f32::NAN);
         }
 
@@ -89,6 +89,20 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 .get_liquids()
                 .map(|liquids| liquids.get_level::<L>())
                 .unwrap_or(f32::NAN);
+        }
+
+        result
+    }
+
+    pub fn collect_surface_level_map(&self) -> [[f32; HEIGHT]; WIDTH] {
+        let mut result = [[0.0; HEIGHT]; WIDTH];
+
+        for (x, y) in Self::all_tile_coords() {
+            result[x][y] = self.tiles[x][y]
+                .tile_type
+                .get_liquids()
+                .map(|liquids| self.tiles[x][y].ground_level + liquids.get_level::<Any>())
+                .unwrap_or(self.tiles[x][y].ground_level);
         }
 
         result
@@ -634,7 +648,7 @@ pub struct LiquidLeveler {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, path::Path};
+    use std::{fs::File, path::PathBuf};
 
     use super::*;
 
@@ -680,44 +694,69 @@ mod tests {
             .flatten()
     }
 
+    struct GifSetup<const WIDTH: usize, const HEIGHT: usize> {
+        path: PathBuf,
+        max_value: f32,
+        min_value: f32,
+        gradient: colorgrad::Gradient,
+        data_getter: fn(&Map<WIDTH, HEIGHT>) -> [[f32; HEIGHT]; WIDTH],
+    }
+
     fn create_map_gif<const WIDTH: usize, const HEIGHT: usize>(
-        path: impl AsRef<Path>,
         map: &mut Map<WIDTH, HEIGHT>,
         iterations: usize,
         frame_every_nth: usize,
-        mut data_step: impl FnMut(&Map<WIDTH, HEIGHT>) -> [[f32; HEIGHT]; WIDTH],
-        max_value: f32,
-        min_value: f32,
         delta_time: f32,
+        gif_setups: &[GifSetup<WIDTH, HEIGHT>],
     ) {
-        let mut image = File::create(path).unwrap();
-        let mut encoder = gif::Encoder::new(&mut image, WIDTH as u16, HEIGHT as u16, &[]).unwrap();
-        encoder.set_repeat(gif::Repeat::Infinite).unwrap();
+        let mut encoders = gif_setups
+            .iter()
+            .map(|setup| {
+                let image = File::create(&setup.path).unwrap();
+                let mut encoder =
+                    gif::Encoder::new(image, WIDTH as u16, HEIGHT as u16, &[]).unwrap();
+                encoder.set_repeat(gif::Repeat::Infinite).unwrap();
+                encoder
+            })
+            .collect::<Vec<_>>();
 
         for i in 0..iterations {
             if i % frame_every_nth == 0 {
-                let data = data_step(&map);
+                for (setup, encoder) in gif_setups.iter().zip(encoders.iter_mut()) {
+                    let data = (setup.data_getter)(&map);
 
-                let mut pixels = vec![0; WIDTH * HEIGHT * 3];
-                for (i, (x, y)) in all_tile_coords_gif::<WIDTH, HEIGHT>().enumerate() {
-                    if data[x][y].is_nan() {
-                        continue;
+                    let mut pixels = vec![128; WIDTH * HEIGHT * 3];
+                    for (i, (x, y)) in all_tile_coords_gif::<WIDTH, HEIGHT>().enumerate() {
+                        if data[x][y].is_nan() {
+                            continue;
+                        }
+
+                        if data[x][y] < setup.min_value {
+                            pixels[i * 3 + 0] = 0;
+                            pixels[i * 3 + 1] = 0;
+                            pixels[i * 3 + 2] = 0;
+                        } else if data[x][y] > setup.max_value {
+                            pixels[i * 3 + 0] = 255;
+                            pixels[i * 3 + 1] = 255;
+                            pixels[i * 3 + 2] = 255;
+                        } else {
+                            let fraction = (data[x][y] - setup.min_value)
+                                / (setup.max_value - setup.min_value);
+                            let [r, g, b, _] = setup.gradient.at(fraction as f64).to_rgba8();
+
+                            pixels[i * 3 + 0] = r;
+                            pixels[i * 3 + 1] = g;
+                            pixels[i * 3 + 2] = b;
+                        }
                     }
-
-                    let fraction = (data[x][y] - min_value) / (max_value - min_value);
-
-                    pixels[i * 3 + 0] =
-                        ((1.0 - fraction).powf(0.1) * 255.0).clamp(0.0, 255.0) as u8;
-                    pixels[i * 3 + 1] = (fraction.powf(0.1) * 255.0).clamp(0.0, 255.0) as u8;
-                    pixels[i * 3 + 2] = if data[x][y] > max_value { 255 } else { 0 };
+                    encoder
+                        .write_frame(&gif::Frame::from_rgb(
+                            WIDTH as u16,
+                            HEIGHT as u16,
+                            &mut pixels,
+                        ))
+                        .unwrap();
                 }
-                encoder
-                    .write_frame(&gif::Frame::from_rgb(
-                        WIDTH as u16,
-                        HEIGHT as u16,
-                        &mut pixels,
-                    ))
-                    .unwrap();
             }
 
             map.simulate(delta_time)
@@ -761,7 +800,7 @@ mod tests {
                 map.liquid_levelers.push(LiquidLeveler {
                     x: 19,
                     y: 9,
-                    target: LiquidData::Lava { level: 1.0 },
+                    target: LiquidData::Lava { level: 1.1 },
                 });
 
                 for (x, y) in Map::<20, 10>::all_tile_coords().filter(|(x, _)| *x > 10) {
@@ -805,68 +844,62 @@ mod tests {
                     };
                 }
 
-                const ITERS: usize = 10000;
-                const NTH: usize = 10;
-
                 create_map_gif(
-                    "target/total_air_pressure.gif",
-                    &mut map.clone(),
-                    ITERS,
-                    NTH,
-                    |map| map.collect_air_pressure_map(),
-                    1.00,
-                    0.0,
+                    &mut map,
+                    100000,
+                    1000,
                     0.05,
-                );
-                create_map_gif(
-                    "target/oxygen.gif",
-                    &mut map.clone(),
-                    ITERS,
-                    NTH,
-                    |map| map.collect_oxygen_map(),
-                    0.21,
-                    0.0,
-                    0.05,
-                );
-                create_map_gif(
-                    "target/fumes.gif",
-                    &mut map.clone(),
-                    ITERS,
-                    NTH,
-                    |map| map.collect_fumes_map(),
-                    0.01,
-                    0.0,
-                    0.05,
-                );
-                create_map_gif(
-                    "target/water.gif",
-                    &mut map.clone(),
-                    ITERS,
-                    NTH,
-                    |map| map.collect_liquids_map::<Water>(),
-                    3.0,
-                    0.0,
-                    0.05,
-                );
-                create_map_gif(
-                    "target/lava.gif",
-                    &mut map.clone(),
-                    ITERS,
-                    NTH,
-                    |map| map.collect_liquids_map::<Lava>(),
-                    3.0,
-                    0.0,
-                    0.05,
-                );
-                create_map_gif(
-                    "target/ground_level.gif",
-                    &mut map.clone(),
-                    ITERS,
-                    NTH,
-                    |map| map.collect_ground_level_map(),
-                    0.0,
-                    -1.1,
-                    0.05,
+                    &[
+                        GifSetup {
+                            path: "target/total_air_pressure.gif".into(),
+                            max_value: 1.00,
+                            min_value: 0.00,
+                            gradient: colorgrad::spectral(),
+                            data_getter: |map| map.collect_air_pressure_map(),
+                        },
+                        GifSetup {
+                            path: "target/oxygen.gif".into(),
+                            max_value: 0.21,
+                            min_value: 0.10,
+                            gradient: colorgrad::spectral(),
+                            data_getter: |map| map.collect_oxygen_map(),
+                        },
+                        GifSetup {
+                            path: "target/fumes.gif".into(),
+                            max_value: 0.01,
+                            min_value: 0.00,
+                            gradient: colorgrad::spectral(),
+                            data_getter: |map| map.collect_fumes_map(),
+                        },
+                        GifSetup {
+                            path: "target/water.gif".into(),
+                            max_value: 3.00,
+                            min_value: 0.00,
+                            gradient: colorgrad::spectral(),
+                            data_getter: |map| map.collect_liquids_map::<Water>(),
+                        },
+                        GifSetup {
+                            path: "target/lava.gif".into(),
+                            max_value: 3.00,
+                            min_value: 0.00,
+                            gradient: colorgrad::spectral(),
+                            data_getter: |map| map.collect_liquids_map::<Lava>(),
+                        },
+                        GifSetup {
+                            path: "target/surface.gif".into(),
+                            max_value: 1.00,
+                            min_value: -1.1,
+                            gradient: colorgrad::spectral(),
+                            data_getter: |map| map.collect_surface_level_map(),
+                        },
+                        GifSetup {
+                            path: "target/ground_level.gif".into(),
+                            max_value: 1.00,
+                            min_value: -1.1,
+                            gradient: colorgrad::spectral(),
+                            data_getter: |map| map.collect_ground_level_map(),
+                        },
+                    ],
                 );
             })
             .unwrap()
