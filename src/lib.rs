@@ -8,7 +8,11 @@ pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
-    pub fn new(tiles: [[Tile; HEIGHT]; WIDTH], air_levelers: Vec<AirLeveler>, oxygen_users: Vec<OxygenUser>) -> Self {
+    pub fn new(
+        tiles: [[Tile; HEIGHT]; WIDTH],
+        air_levelers: Vec<AirLeveler>,
+        oxygen_users: Vec<OxygenUser>,
+    ) -> Self {
         Self {
             tiles,
             air_levelers,
@@ -168,7 +172,9 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                     // It moves due to the total pressure difference, not the difference between each element separately
                     let pressure_delta = air.total() - neighbour_air.total();
                     let applied_pressure_delta =
-                        (pressure_delta * PRESSURE_SPREAD_RATE * delta_time).sqrt().min(air.total() / 8.0);
+                        (pressure_delta * PRESSURE_SPREAD_RATE * delta_time)
+                            .sqrt()
+                            .min(air.total() / 8.0);
 
                     let nitrogen_delta = applied_pressure_delta * nitrogen_fraction;
                     let oxygen_delta = applied_pressure_delta * oxygen_fraction;
@@ -452,8 +458,8 @@ mod tests {
                 map.air_levelers.push(AirLeveler {
                     x: 9,
                     y: 0,
-                    nitrogen: 0.79/2.0,
-                    oxygen: 0.21/2.0,
+                    nitrogen: 0.79 / 2.0,
+                    oxygen: 0.21 / 2.0,
                     fumes: 0.0,
                 });
                 map.air_levelers.push(AirLeveler {
