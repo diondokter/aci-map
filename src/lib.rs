@@ -791,6 +791,13 @@ mod tests {
                     minimum_oxygen_fraction_required: 0.10,
                     change_per_sec: 0.0001,
                 });
+                map.oxygen_users.push(OxygenUser {
+                    x: 18,
+                    y: 2,
+                    minimum_pressure_required: 0.1,
+                    minimum_oxygen_fraction_required: 0.10,
+                    change_per_sec: 0.0001,
+                });
 
                 map.liquid_levelers.push(LiquidLeveler {
                     x: 19,
@@ -803,7 +810,7 @@ mod tests {
                     target: LiquidData::Lava { level: 1.1 },
                 });
 
-                for (x, y) in Map::<20, 10>::all_tile_coords().filter(|(x, _)| *x > 10) {
+                for (x, y) in Map::<20, 10>::all_tile_coords().filter(|(x, _)| *x >= 10) {
                     map.tiles[x][y].ground_level = -1.1;
                 }
 
@@ -837,7 +844,7 @@ mod tests {
                         ..Default::default()
                     };
                 }
-                for i in 3..7 {
+                for i in 3..6 {
                     map.tiles[i][7] = Tile {
                         tile_type: TileType::Wall,
                         ..Default::default()
@@ -847,13 +854,13 @@ mod tests {
                 create_map_gif(
                     &mut map,
                     100000,
-                    1000,
+                    100,
                     0.05,
                     &[
                         GifSetup {
                             path: "target/total_air_pressure.gif".into(),
-                            max_value: 1.00,
-                            min_value: 0.00,
+                            max_value: 1.02,
+                            min_value: 0.80,
                             gradient: colorgrad::viridis(),
                             data_getter: |map| map.collect_air_pressure_map(),
                         },
@@ -866,7 +873,7 @@ mod tests {
                         },
                         GifSetup {
                             path: "target/fumes.gif".into(),
-                            max_value: 0.01,
+                            max_value: 0.005,
                             min_value: 0.00,
                             gradient: colorgrad::viridis(),
                             data_getter: |map| map.collect_fumes_map(),
