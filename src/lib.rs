@@ -1,34 +1,85 @@
-use std::ops::Add;
+#![feature(const_type_id)]
 
-#[derive(Debug, Clone)]
+use object_id::{Object, ObjectId};
+use std::{any::{TypeId, type_name}, ops::Add};
+
+mod object_id;
+
+#[derive(Debug)]
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     pub tiles: [[Tile; HEIGHT]; WIDTH],
-    pub air_levelers: Vec<AirLeveler>,
-    pub oxygen_users: Vec<OxygenUser>,
-    pub liquid_levelers: Vec<LiquidLeveler>,
+    next_object_id: usize,
+    air_levelers: Vec<Object<AirLeveler>>,
+    oxygen_users: Vec<Object<OxygenUser>>,
+    liquid_levelers: Vec<Object<LiquidLeveler>>,
 }
 
-impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
-    pub fn new(
-        tiles: [[Tile; HEIGHT]; WIDTH],
-        air_levelers: Vec<AirLeveler>,
-        oxygen_users: Vec<OxygenUser>,
-        liquid_levelers: Vec<LiquidLeveler>,
-    ) -> Self {
-        Self {
-            tiles,
-            air_levelers,
-            oxygen_users,
-            liquid_levelers,
-        }
-    }
+const AIR_LEVELER: TypeId = TypeId::of::<AirLeveler>();
+const OXYGEN_USER: TypeId = TypeId::of::<OxygenUser>();
+const LIQUID_LEVELER: TypeId = TypeId::of::<LiquidLeveler>();
 
+impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     pub const fn new_default() -> Self {
         Self {
             tiles: [[Tile::new_default(); HEIGHT]; WIDTH],
+            next_object_id: 0,
             air_levelers: Vec::new(),
             oxygen_users: Vec::new(),
             liquid_levelers: Vec::new(),
+        }
+    }
+
+    pub fn push_object<T: 'static>(&mut self, object: T) -> ObjectId<T> {
+        let new_object_id = self.next_object_id;
+        self.next_object_id += 1;
+
+        let object = Object {
+            id: new_object_id,
+            object,
+        };
+        let object_id = object.id();
+        self.get_vec_of_type_mut().push(object);
+
+        object_id
+    }
+
+    pub fn remove_object<T: 'static>(&mut self, id: ObjectId<T>) {
+        let object_vec = self.get_vec_of_type_mut::<T>();
+        let index = object_vec
+            .iter()
+            .enumerate()
+            .find_map(|(index, object)| (object.id() == id).then_some(index))
+            .unwrap();
+        object_vec.remove(index);
+    }
+
+    pub fn get_object<T>(&mut self, id: ObjectId<T>) -> Option<&Object<T>> {
+        self.get_vec_of_type::<T>()
+            .iter()
+            .find(|obj| obj.id() == id)
+    }
+
+    pub fn get_object_mut<T>(&mut self, id: ObjectId<T>) -> Option<&mut Object<T>> {
+        self.get_vec_of_type_mut::<T>()
+            .iter_mut()
+            .find(|obj| obj.id() == id)
+    }
+
+    fn get_vec_of_type<T>(&self) -> &Vec<Object<T>> {
+        match TypeId::of::<T>() {
+            AIR_LEVELER => unsafe { std::mem::transmute(&self.air_levelers) },
+            OXYGEN_USER => unsafe { std::mem::transmute(&self.oxygen_users) },
+            LIQUID_LEVELER => unsafe { std::mem::transmute(&self.liquid_levelers) },
+            _ => unreachable!(),
+        }
+    }
+
+    fn get_vec_of_type_mut<T>(&mut self) -> &mut Vec<Object<T>> {
+        match TypeId::of::<T>() {
+            AIR_LEVELER => unsafe { std::mem::transmute(&mut self.air_levelers) },
+            OXYGEN_USER => unsafe { std::mem::transmute(&mut self.oxygen_users) },
+            LIQUID_LEVELER => unsafe { std::mem::transmute(&mut self.liquid_levelers) },
+            _ => unreachable!("{} is not covered", type_name::<T>()),
         }
     }
 
@@ -45,7 +96,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             result[x][y] = self.tiles[x][y]
                 .tile_type
                 .get_ground()
-                .map(|(air, liquids)| air.air_pressure(liquids.get_level::<Any>()))
+                .map(|(air, liquids)| air.air_pressure(liquids.get_level::<AnyLiquid>()))
                 .unwrap_or(f32::NAN);
         }
 
@@ -101,7 +152,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             result[x][y] = self.tiles[x][y]
                 .tile_type
                 .get_liquids()
-                .map(|liquids| self.tiles[x][y].ground_level + liquids.get_level::<Any>())
+                .map(|liquids| self.tiles[x][y].ground_level + liquids.get_level::<AnyLiquid>())
                 .unwrap_or(self.tiles[x][y].ground_level);
         }
 
@@ -182,7 +233,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                     continue;
                 };
 
-            let air_pressure = air.air_pressure(liquids.get_level::<Any>());
+            let air_pressure = air.air_pressure(liquids.get_level::<AnyLiquid>());
 
             let neighbour_airs = self
                 // Get all neighbours
@@ -200,7 +251,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
             for (nx, ny, neighbour_air, neighbour_liquids) in neighbour_airs {
                 let neighbour_air_pressure =
-                    neighbour_air.air_pressure(neighbour_liquids.get_level::<Any>());
+                    neighbour_air.air_pressure(neighbour_liquids.get_level::<AnyLiquid>());
 
                 // Move air due to diffusion. We trade air equally. We give some, we take some
                 let nitrogen_needed_for_equal = nitrogen_fraction * neighbour_air_pressure;
@@ -280,7 +331,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 continue;
             };
 
-            let air_pressure = air.air_pressure(liquids.get_level::<Any>());
+            let air_pressure = air.air_pressure(liquids.get_level::<AnyLiquid>());
 
             if air_pressure < oxygen_user.minimum_pressure_required {
                 continue;
@@ -578,8 +629,8 @@ pub trait Liquid {
     fn get_level(data: &LiquidData) -> Option<f32>;
 }
 
-struct Any;
-impl Liquid for Any {
+struct AnyLiquid;
+impl Liquid for AnyLiquid {
     const SPREAD_RATE: f32 = 0.0;
     const MINIMAL_HEIGHT_TO_SPREAD: f32 = 0.0;
 
@@ -770,28 +821,28 @@ mod tests {
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
                 let mut map = Map::<20, 10>::new_default();
-                map.air_levelers.push(AirLeveler {
+                map.push_object(AirLeveler {
                     x: 0,
                     y: 9,
                     nitrogen: 0.79 / 2.0,
                     oxygen: 0.21 / 2.0,
                     fumes: 0.0,
                 });
-                map.air_levelers.push(AirLeveler {
+                map.push_object(AirLeveler {
                     x: 9,
                     y: 0,
                     nitrogen: 0.79,
                     oxygen: 0.21,
                     fumes: 0.0,
                 });
-                map.oxygen_users.push(OxygenUser {
+                map.push_object(OxygenUser {
                     x: 5,
                     y: 5,
                     minimum_pressure_required: 0.1,
                     minimum_oxygen_fraction_required: 0.10,
                     change_per_sec: 0.0001,
                 });
-                map.oxygen_users.push(OxygenUser {
+                map.push_object(OxygenUser {
                     x: 18,
                     y: 2,
                     minimum_pressure_required: 0.1,
@@ -799,12 +850,12 @@ mod tests {
                     change_per_sec: 0.0001,
                 });
 
-                map.liquid_levelers.push(LiquidLeveler {
+                map.push_object(LiquidLeveler {
                     x: 19,
                     y: 0,
                     target: LiquidData::Water { level: 1.0 },
                 });
-                map.liquid_levelers.push(LiquidLeveler {
+                map.push_object(LiquidLeveler {
                     x: 19,
                     y: 9,
                     target: LiquidData::Lava { level: 1.1 },

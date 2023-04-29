@@ -8,21 +8,21 @@ fn simulate_map<const WIDTH: usize, const HEIGHT: usize>(map: &mut Map<WIDTH, HE
 fn criterion_benchmark(c: &mut Criterion) {
     let mut map: Map<500, 500> = Map::new_default();
 
-    map.air_levelers.push(AirLeveler {
+    map.push_object(AirLeveler {
         x: 0,
         y: 0,
         nitrogen: 0.79,
         oxygen: 0.00,
         fumes: 0.0,
     });
-    map.air_levelers.push(AirLeveler {
+    map.push_object(AirLeveler {
         x: 9,
         y: 9,
         nitrogen: 0.79,
         oxygen: 0.21,
         fumes: 0.00,
     });
-    map.oxygen_users.push(OxygenUser {
+    map.push_object(OxygenUser {
         x: 50,
         y: 50,
         minimum_pressure_required: 0.1,
@@ -30,12 +30,12 @@ fn criterion_benchmark(c: &mut Criterion) {
         change_per_sec: 0.001,
     });
 
-    map.liquid_levelers.push(LiquidLeveler {
+    map.push_object(LiquidLeveler {
         x: 99,
         y: 0,
         target: LiquidData::Water { level: 1.0 },
     });
-    map.liquid_levelers.push(LiquidLeveler {
+    map.push_object(LiquidLeveler {
         x: 99,
         y: 9,
         target: LiquidData::Lava { level: 1.0 },
