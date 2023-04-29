@@ -1,9 +1,30 @@
-use std::{marker::PhantomData, ops::{Deref, DerefMut}};
+use std::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct ObjectId<T> {
     id: usize,
     _phantom: PhantomData<T>,
+}
+
+impl<T> ObjectId<T> {
+    pub fn new(id: usize) -> Self {
+        Self {
+            id,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl ObjectId<()> {
+    pub fn cast<T>(self) -> ObjectId<T> {
+        ObjectId {
+            id: self.id,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<T> PartialEq for ObjectId<T> {
@@ -15,18 +36,18 @@ impl<T> PartialEq for ObjectId<T> {
 impl<T> Eq for ObjectId<T> {}
 
 #[derive(Debug)]
-pub struct Object<T: 'static> {
+pub struct Object<T: ObjectProperties> {
     pub(crate) id: usize,
     pub(crate) object: T,
 }
 
-impl<T: 'static> Object<T> {
+impl<T: ObjectProperties> Object<T> {
     pub fn id(&self) -> ObjectId<T> {
-        ObjectId { id: self.id, _phantom: PhantomData::default() }
+        ObjectId::new(self.id)
     }
 }
 
-impl<T: 'static> Deref for Object<T> {
+impl<T: ObjectProperties> Deref for Object<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -34,8 +55,14 @@ impl<T: 'static> Deref for Object<T> {
     }
 }
 
-impl<T: 'static> DerefMut for Object<T> {
+impl<T: ObjectProperties> DerefMut for Object<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.object
+    }
+}
+
+pub trait ObjectProperties: 'static {
+    fn children(&self) -> Option<Vec<ObjectId<()>>> {
+        None
     }
 }

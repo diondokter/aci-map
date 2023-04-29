@@ -1,7 +1,10 @@
 #![feature(const_type_id)]
 
-use object_id::{Object, ObjectId};
-use std::{any::{TypeId, type_name}, ops::Add};
+use object_id::{Object, ObjectId, ObjectProperties};
+use std::{
+    any::{type_name, TypeId},
+    ops::Add,
+};
 
 mod object_id;
 
@@ -29,7 +32,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         }
     }
 
-    pub fn push_object<T: 'static>(&mut self, object: T) -> ObjectId<T> {
+    pub fn push_object<T: ObjectProperties>(&mut self, object: T) -> ObjectId<T> {
         let new_object_id = self.next_object_id;
         self.next_object_id += 1;
 
@@ -43,29 +46,54 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         object_id
     }
 
-    pub fn remove_object<T: 'static>(&mut self, id: ObjectId<T>) {
+    /// Removes the given object and all children. Returns true if the object was found and removed
+    pub fn remove_object<T: ObjectProperties>(&mut self, id: ObjectId<T>) -> bool {
         let object_vec = self.get_vec_of_type_mut::<T>();
-        let index = object_vec
+        let found_object = object_vec
             .iter()
             .enumerate()
-            .find_map(|(index, object)| (object.id() == id).then_some(index))
-            .unwrap();
-        object_vec.remove(index);
+            .find_map(|(index, object)| (object.id() == id).then(|| (index, object.children())));
+
+        if let Some((index, children)) = found_object {
+            object_vec.remove(index);
+
+            if let Some(children) = children {
+                for child in children {
+                    if self.remove_object(child.cast::<AirLeveler>()) {
+                        continue;
+                    }
+                    if self.remove_object(child.cast::<OxygenUser>()) {
+                        continue;
+                    }
+                    if self.remove_object(child.cast::<LiquidLeveler>()) {
+                        continue;
+                    }
+                    unreachable!("The child {child:?} wasn't removed");
+                }
+            }
+
+            return true;
+        }
+
+        false
     }
 
-    pub fn get_object<T>(&mut self, id: ObjectId<T>) -> Option<&Object<T>> {
+    pub fn get_object<T: ObjectProperties>(&mut self, id: ObjectId<T>) -> Option<&Object<T>> {
         self.get_vec_of_type::<T>()
             .iter()
             .find(|obj| obj.id() == id)
     }
 
-    pub fn get_object_mut<T>(&mut self, id: ObjectId<T>) -> Option<&mut Object<T>> {
+    pub fn get_object_mut<T: ObjectProperties>(
+        &mut self,
+        id: ObjectId<T>,
+    ) -> Option<&mut Object<T>> {
         self.get_vec_of_type_mut::<T>()
             .iter_mut()
             .find(|obj| obj.id() == id)
     }
 
-    fn get_vec_of_type<T>(&self) -> &Vec<Object<T>> {
+    fn get_vec_of_type<T: ObjectProperties>(&self) -> &Vec<Object<T>> {
         match TypeId::of::<T>() {
             AIR_LEVELER => unsafe { std::mem::transmute(&self.air_levelers) },
             OXYGEN_USER => unsafe { std::mem::transmute(&self.oxygen_users) },
@@ -74,7 +102,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         }
     }
 
-    fn get_vec_of_type_mut<T>(&mut self) -> &mut Vec<Object<T>> {
+    fn get_vec_of_type_mut<T: ObjectProperties>(&mut self) -> &mut Vec<Object<T>> {
         match TypeId::of::<T>() {
             AIR_LEVELER => unsafe { std::mem::transmute(&mut self.air_levelers) },
             OXYGEN_USER => unsafe { std::mem::transmute(&mut self.oxygen_users) },
@@ -681,6 +709,8 @@ pub struct AirLeveler {
     pub fumes: f32,
 }
 
+impl ObjectProperties for AirLeveler {}
+
 #[derive(Debug, Clone)]
 pub struct OxygenUser {
     pub x: usize,
@@ -690,12 +720,16 @@ pub struct OxygenUser {
     pub change_per_sec: f32,
 }
 
+impl ObjectProperties for OxygenUser {}
+
 #[derive(Debug, Clone)]
 pub struct LiquidLeveler {
     pub x: usize,
     pub y: usize,
     pub target: LiquidData,
 }
+
+impl ObjectProperties for LiquidLeveler {}
 
 #[cfg(test)]
 mod tests {
