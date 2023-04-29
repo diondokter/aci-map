@@ -1,38 +1,47 @@
 #![feature(const_type_id)]
 
+use environment_object::EnvironmentObject;
 use object_id::{Object, ObjectId, ObjectProperties};
 use std::{
     any::{type_name, TypeId},
-    ops::Add,
+    ops::{Add, Deref},
 };
 
+mod building;
+pub mod environment_object;
 mod object_id;
 
 #[derive(Debug)]
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     pub tiles: [[Tile; HEIGHT]; WIDTH],
     next_object_id: usize,
-    air_levelers: Vec<Object<AirLeveler>>,
-    oxygen_users: Vec<Object<OxygenUser>>,
-    liquid_levelers: Vec<Object<LiquidLeveler>>,
+    environment_objects: Vec<Object<EnvironmentObject>>,
 }
 
-const AIR_LEVELER: TypeId = TypeId::of::<AirLeveler>();
-const OXYGEN_USER: TypeId = TypeId::of::<OxygenUser>();
-const LIQUID_LEVELER: TypeId = TypeId::of::<LiquidLeveler>();
+/// Get an `Iterator<item = &dyn ObjectProperties>` containing all map objects.
+/// This is a macro because a function would borrow the whole map object instead of just the object fields
+macro_rules! all_map_objects {
+    ($map:ident) => {
+        $map.environment_objects
+            .iter()
+            .map(|eo| eo.deref() as &dyn ObjectProperties)
+    };
+}
+
+const ENVIRONMENT_OBJECT: TypeId = TypeId::of::<EnvironmentObject>();
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     pub const fn new_default() -> Self {
         Self {
             tiles: [[Tile::new_default(); HEIGHT]; WIDTH],
             next_object_id: 0,
-            air_levelers: Vec::new(),
-            oxygen_users: Vec::new(),
-            liquid_levelers: Vec::new(),
+            environment_objects: Vec::new(),
         }
     }
 
-    pub fn push_object<T: ObjectProperties>(&mut self, object: T) -> ObjectId<T> {
+    pub fn push_object<T: ObjectProperties>(&mut self, object: impl Into<T>) -> ObjectId<T> {
+        let object = object.into();
+
         let new_object_id = self.next_object_id;
         self.next_object_id += 1;
 
@@ -46,36 +55,15 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         object_id
     }
 
-    /// Removes the given object and all children. Returns true if the object was found and removed
-    pub fn remove_object<T: ObjectProperties>(&mut self, id: ObjectId<T>) -> bool {
+    pub fn remove_object<T: ObjectProperties>(&mut self, id: ObjectId<T>) {
         let object_vec = self.get_vec_of_type_mut::<T>();
-        let found_object = object_vec
+        let index = object_vec
             .iter()
             .enumerate()
-            .find_map(|(index, object)| (object.id() == id).then(|| (index, object.children())));
+            .find_map(|(index, object)| (object.id() == id).then_some(index))
+            .unwrap();
 
-        if let Some((index, children)) = found_object {
-            object_vec.remove(index);
-
-            if let Some(children) = children {
-                for child in children {
-                    if self.remove_object(child.cast::<AirLeveler>()) {
-                        continue;
-                    }
-                    if self.remove_object(child.cast::<OxygenUser>()) {
-                        continue;
-                    }
-                    if self.remove_object(child.cast::<LiquidLeveler>()) {
-                        continue;
-                    }
-                    unreachable!("The child {child:?} wasn't removed");
-                }
-            }
-
-            return true;
-        }
-
-        false
+        object_vec.remove(index);
     }
 
     pub fn get_object<T: ObjectProperties>(&mut self, id: ObjectId<T>) -> Option<&Object<T>> {
@@ -95,18 +83,14 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
     fn get_vec_of_type<T: ObjectProperties>(&self) -> &Vec<Object<T>> {
         match TypeId::of::<T>() {
-            AIR_LEVELER => unsafe { std::mem::transmute(&self.air_levelers) },
-            OXYGEN_USER => unsafe { std::mem::transmute(&self.oxygen_users) },
-            LIQUID_LEVELER => unsafe { std::mem::transmute(&self.liquid_levelers) },
+            ENVIRONMENT_OBJECT => unsafe { std::mem::transmute(&self.environment_objects) },
             _ => unreachable!(),
         }
     }
 
     fn get_vec_of_type_mut<T: ObjectProperties>(&mut self) -> &mut Vec<Object<T>> {
         match TypeId::of::<T>() {
-            AIR_LEVELER => unsafe { std::mem::transmute(&mut self.air_levelers) },
-            OXYGEN_USER => unsafe { std::mem::transmute(&mut self.oxygen_users) },
-            LIQUID_LEVELER => unsafe { std::mem::transmute(&mut self.liquid_levelers) },
+            ENVIRONMENT_OBJECT => unsafe { std::mem::transmute(&mut self.environment_objects) },
             _ => unreachable!("{} is not covered", type_name::<T>()),
         }
     }
@@ -344,37 +328,43 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             air.fumes = air.fumes.add(air_diff[x][y].fumes).max(0.0);
         }
 
-        for air_leveler in self.air_levelers.iter() {
-            let Some(air) = self.tiles[air_leveler.x][air_leveler.y].tile_type.get_air_mut() else {
-                continue;
-            };
+        for map_object in all_map_objects!(self) {
+            if let Some(air_levelers) = map_object.air_levelers() {
+                for air_leveler in air_levelers {
+                    let Some(air) = self.tiles[air_leveler.x][air_leveler.y].tile_type.get_air_mut() else {
+                        continue;
+                    };
 
-            air.nitrogen = air_leveler.nitrogen;
-            air.oxygen = air_leveler.oxygen;
-            air.fumes = air_leveler.fumes;
-        }
-
-        for oxygen_user in self.oxygen_users.iter() {
-            let Some((air, liquids)) = self.tiles[oxygen_user.x][oxygen_user.y].tile_type.get_ground_mut() else {
-                continue;
-            };
-
-            let air_pressure = air.air_pressure(liquids.get_level::<AnyLiquid>());
-
-            if air_pressure < oxygen_user.minimum_pressure_required {
-                continue;
+                    air.nitrogen = air_leveler.nitrogen;
+                    air.oxygen = air_leveler.oxygen;
+                    air.fumes = air_leveler.fumes;
+                }
             }
 
-            if air.oxygen / air_pressure < oxygen_user.minimum_oxygen_fraction_required {
-                continue;
-            }
+            if let Some(oxygen_users) = map_object.oxygen_users() {
+                for oxygen_user in oxygen_users {
+                    let Some((air, liquids)) = self.tiles[oxygen_user.x][oxygen_user.y].tile_type.get_ground_mut() else {
+                        continue;
+                    };
 
-            if air.oxygen < oxygen_user.change_per_sec * delta_time {
-                continue;
-            }
+                    let air_pressure = air.air_pressure(liquids.get_level::<AnyLiquid>());
 
-            air.oxygen -= oxygen_user.change_per_sec * delta_time;
-            air.fumes += oxygen_user.change_per_sec * delta_time;
+                    if air_pressure < oxygen_user.minimum_pressure_required {
+                        continue;
+                    }
+
+                    if air.oxygen / air_pressure < oxygen_user.minimum_oxygen_fraction_required {
+                        continue;
+                    }
+
+                    if air.oxygen < oxygen_user.change_per_sec * delta_time {
+                        continue;
+                    }
+
+                    air.oxygen -= oxygen_user.change_per_sec * delta_time;
+                    air.fumes += oxygen_user.change_per_sec * delta_time;
+                }
+            }
         }
     }
 
@@ -453,10 +443,13 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             }
         }
 
-        for liquid_leveler in self.liquid_levelers.iter() {
+        for liquid_leveler in all_map_objects!(self)
+            .filter_map(|object| object.liquid_levelers())
+            .flatten()
+        {
             let Some(liquids) = self.tiles[liquid_leveler.x][liquid_leveler.y].tile_type.get_liquids_mut() else {
-                continue;
-            };
+                    continue;
+                };
 
             *liquids = liquid_leveler.target;
         }
@@ -709,8 +702,6 @@ pub struct AirLeveler {
     pub fumes: f32,
 }
 
-impl ObjectProperties for AirLeveler {}
-
 #[derive(Debug, Clone)]
 pub struct OxygenUser {
     pub x: usize,
@@ -720,16 +711,12 @@ pub struct OxygenUser {
     pub change_per_sec: f32,
 }
 
-impl ObjectProperties for OxygenUser {}
-
 #[derive(Debug, Clone)]
 pub struct LiquidLeveler {
     pub x: usize,
     pub y: usize,
     pub target: LiquidData,
 }
-
-impl ObjectProperties for LiquidLeveler {}
 
 #[cfg(test)]
 mod tests {
@@ -855,28 +842,28 @@ mod tests {
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
                 let mut map = Map::<20, 10>::new_default();
-                map.push_object(AirLeveler {
+                map.push_object::<EnvironmentObject>(AirLeveler {
                     x: 0,
                     y: 9,
                     nitrogen: 0.79 / 2.0,
                     oxygen: 0.21 / 2.0,
                     fumes: 0.0,
                 });
-                map.push_object(AirLeveler {
+                map.push_object::<EnvironmentObject>(AirLeveler {
                     x: 9,
                     y: 0,
                     nitrogen: 0.79,
                     oxygen: 0.21,
                     fumes: 0.0,
                 });
-                map.push_object(OxygenUser {
+                map.push_object::<EnvironmentObject>(OxygenUser {
                     x: 5,
                     y: 5,
                     minimum_pressure_required: 0.1,
                     minimum_oxygen_fraction_required: 0.10,
                     change_per_sec: 0.0001,
                 });
-                map.push_object(OxygenUser {
+                map.push_object::<EnvironmentObject>(OxygenUser {
                     x: 18,
                     y: 2,
                     minimum_pressure_required: 0.1,
@@ -884,12 +871,12 @@ mod tests {
                     change_per_sec: 0.0001,
                 });
 
-                map.push_object(LiquidLeveler {
+                map.push_object::<EnvironmentObject>(LiquidLeveler {
                     x: 19,
                     y: 0,
                     target: LiquidData::Water { level: 1.0 },
                 });
-                map.push_object(LiquidLeveler {
+                map.push_object::<EnvironmentObject>(LiquidLeveler {
                     x: 19,
                     y: 9,
                     target: LiquidData::Lava { level: 1.1 },
