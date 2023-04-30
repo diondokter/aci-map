@@ -1,10 +1,17 @@
-use crate::{object_id::ObjectProperties, AirLeveler, LiquidLeveler, OxygenUser};
+use crate::{object_id::ObjectProperties, AirLeveler, LiquidLeveler, OxygenUser, AirPusher};
 
 #[derive(Debug)]
 pub enum EnvironmentObject {
     AirLeveler(AirLeveler),
     OxygenUser(OxygenUser),
+    AirPusher(AirPusher),
     LiquidLeveler(LiquidLeveler),
+}
+
+impl From<AirPusher> for EnvironmentObject {
+    fn from(v: AirPusher) -> Self {
+        Self::AirPusher(v)
+    }
 }
 
 impl From<LiquidLeveler> for EnvironmentObject {
@@ -43,6 +50,13 @@ impl ObjectProperties for EnvironmentObject {
     fn liquid_levelers(&self) -> Vec<&LiquidLeveler> {
         match self {
             EnvironmentObject::LiquidLeveler(ll) => vec![ll],
+            _ => vec![],
+        }
+    }
+
+    fn air_pushers(&self) -> Vec<&AirPusher> {
+        match self {
+            EnvironmentObject::AirPusher(ap) => vec![ap],
             _ => vec![],
         }
     }

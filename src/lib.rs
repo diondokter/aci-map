@@ -361,6 +361,35 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 air.oxygen -= oxygen_user.change_per_sec * delta_time;
                 air.fumes += oxygen_user.change_per_sec * delta_time;
             }
+
+            for air_pusher in map_object.air_pushers() {
+                let Some((push_x, push_y)) = air_pusher.direction
+                    .move_coords_in_direction::<WIDTH, HEIGHT>(air_pusher.x, air_pusher.y) else {
+                        continue;
+                    };
+
+                let Some(source_air) = self.tiles[air_pusher.x][air_pusher.y].tile_type.get_air() else {
+                    continue;
+                };
+
+                let nitrogen_taken = source_air.nitrogen * air_pusher.amount * delta_time;
+                let oxygen_taken = source_air.oxygen * air_pusher.amount * delta_time;
+                let fumes_taken = source_air.fumes * air_pusher.amount * delta_time;
+
+                let Some(target_air) = self.tiles[push_x][push_y].tile_type.get_air_mut() else {
+                    continue;
+                };
+
+                target_air.nitrogen += nitrogen_taken;
+                target_air.oxygen += oxygen_taken;
+                target_air.fumes += fumes_taken;
+
+                let source_air = self.tiles[air_pusher.x][air_pusher.y].tile_type.get_air_mut().unwrap();
+
+                source_air.nitrogen -= nitrogen_taken;
+                source_air.oxygen -= oxygen_taken;
+                source_air.fumes -= fumes_taken;
+            }
         }
     }
 
@@ -708,10 +737,42 @@ pub struct OxygenUser {
 }
 
 #[derive(Debug, Clone)]
+pub struct AirPusher {
+    pub x: usize,
+    pub y: usize,
+    pub direction: Facing,
+    /// Fraction of the air in the pusher location that is push into the given direction per second
+    pub amount: f32,
+}
+
+#[derive(Debug, Clone)]
 pub struct LiquidLeveler {
     pub x: usize,
     pub y: usize,
     pub target: LiquidData,
+}
+
+#[derive(Debug, Clone)]
+pub enum Facing {
+    North,
+    East,
+    South,
+    West,
+}
+
+impl Facing {
+    pub fn move_coords_in_direction<const WIDTH: usize, const HEIGHT: usize>(
+        &self,
+        x: usize,
+        y: usize,
+    ) -> Option<(usize, usize)> {
+        match self {
+            Facing::North => (y > 0).then(|| (x, y - 1)),
+            Facing::East => (x < WIDTH - 1).then(|| (x + 1, y)),
+            Facing::South => (y < HEIGHT - 1).then(|| (x, y + 1)),
+            Facing::West => (x > 0).then(|| (x - 1, y)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -877,6 +938,24 @@ mod tests {
                     y: 9,
                     target: LiquidData::Lava { level: 1.1 },
                 });
+                map.push_object::<EnvironmentObject>(AirPusher {
+                    x: 18,
+                    y: 4,
+                    direction: Facing::South,
+                    amount: 2.0,
+                });
+                map.push_object::<EnvironmentObject>(AirPusher {
+                    x: 16,
+                    y: 8,
+                    direction: Facing::West,
+                    amount: 2.0,
+                });
+                map.push_object::<EnvironmentObject>(AirPusher {
+                    x: 10,
+                    y: 8,
+                    direction: Facing::West,
+                    amount: 2.0,
+                });
 
                 for (x, y) in Map::<20, 10>::all_tile_coords().filter(|(x, _)| *x >= 10) {
                     map.tiles[x][y].ground_level = -1.1;
@@ -928,7 +1007,7 @@ mod tests {
                         GifSetup {
                             path: "target/total_air_pressure.gif".into(),
                             max_value: 1.02,
-                            min_value: 0.80,
+                            min_value: 0.00,
                             gradient: colorgrad::viridis(),
                             data_getter: |map| map.collect_air_pressure_map(),
                         },

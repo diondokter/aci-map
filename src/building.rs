@@ -16,10 +16,3 @@
 
 //     }
 // }
-
-// pub enum Facing {
-//     North,
-//     East,
-//     South,
-//     West,
-// }
