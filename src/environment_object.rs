@@ -26,24 +26,24 @@ impl From<AirLeveler> for EnvironmentObject {
 }
 
 impl ObjectProperties for EnvironmentObject {
-    fn air_levelers(&self) -> Option<Box<dyn Iterator<Item = &AirLeveler> + '_>> {
+    fn air_levelers(&self) -> Vec<&AirLeveler> {
         match self {
-            EnvironmentObject::AirLeveler(al) => Some(Box::new(std::iter::once(al))),
-            _ => None,
+            EnvironmentObject::AirLeveler(al) => vec![al],
+            _ => vec![],
         }
     }
 
-    fn oxygen_users(&self) -> Option<Box<dyn Iterator<Item = &OxygenUser> + '_>> {
+    fn oxygen_users(&self) -> Vec<&OxygenUser> {
         match self {
-            EnvironmentObject::OxygenUser(ou) => Some(Box::new(std::iter::once(ou))),
-            _ => None,
+            EnvironmentObject::OxygenUser(ou) => vec![ou],
+            _ => vec![],
         }
     }
 
-    fn liquid_levelers(&self) -> Option<Box<dyn Iterator<Item = &LiquidLeveler> + '_>> {
+    fn liquid_levelers(&self) -> Vec<&LiquidLeveler> {
         match self {
-            EnvironmentObject::LiquidLeveler(ll) => Some(Box::new(std::iter::once(ll))),
-            _ => None,
+            EnvironmentObject::LiquidLeveler(ll) => vec![ll],
+            _ => vec![],
         }
     }
 }

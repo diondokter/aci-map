@@ -329,41 +329,37 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         }
 
         for map_object in all_map_objects!(self) {
-            if let Some(air_levelers) = map_object.air_levelers() {
-                for air_leveler in air_levelers {
-                    let Some(air) = self.tiles[air_leveler.x][air_leveler.y].tile_type.get_air_mut() else {
-                        continue;
-                    };
+            for air_leveler in map_object.air_levelers() {
+                let Some(air) = self.tiles[air_leveler.x][air_leveler.y].tile_type.get_air_mut() else {
+                    continue;
+                };
 
-                    air.nitrogen = air_leveler.nitrogen;
-                    air.oxygen = air_leveler.oxygen;
-                    air.fumes = air_leveler.fumes;
-                }
+                air.nitrogen = air_leveler.nitrogen;
+                air.oxygen = air_leveler.oxygen;
+                air.fumes = air_leveler.fumes;
             }
 
-            if let Some(oxygen_users) = map_object.oxygen_users() {
-                for oxygen_user in oxygen_users {
-                    let Some((air, liquids)) = self.tiles[oxygen_user.x][oxygen_user.y].tile_type.get_ground_mut() else {
-                        continue;
-                    };
+            for oxygen_user in map_object.oxygen_users() {
+                let Some((air, liquids)) = self.tiles[oxygen_user.x][oxygen_user.y].tile_type.get_ground_mut() else {
+                    continue;
+                };
 
-                    let air_pressure = air.air_pressure(liquids.get_level::<AnyLiquid>());
+                let air_pressure = air.air_pressure(liquids.get_level::<AnyLiquid>());
 
-                    if air_pressure < oxygen_user.minimum_pressure_required {
-                        continue;
-                    }
-
-                    if air.oxygen / air_pressure < oxygen_user.minimum_oxygen_fraction_required {
-                        continue;
-                    }
-
-                    if air.oxygen < oxygen_user.change_per_sec * delta_time {
-                        continue;
-                    }
-
-                    air.oxygen -= oxygen_user.change_per_sec * delta_time;
-                    air.fumes += oxygen_user.change_per_sec * delta_time;
+                if air_pressure < oxygen_user.minimum_pressure_required {
+                    continue;
                 }
+
+                if air.oxygen / air_pressure < oxygen_user.minimum_oxygen_fraction_required {
+                    continue;
+                }
+
+                if air.oxygen < oxygen_user.change_per_sec * delta_time {
+                    continue;
+                }
+
+                air.oxygen -= oxygen_user.change_per_sec * delta_time;
+                air.fumes += oxygen_user.change_per_sec * delta_time;
             }
         }
     }
@@ -444,12 +440,12 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         }
 
         for liquid_leveler in all_map_objects!(self)
-            .filter_map(|object| object.liquid_levelers())
+            .map(|object| object.liquid_levelers())
             .flatten()
         {
             let Some(liquids) = self.tiles[liquid_leveler.x][liquid_leveler.y].tile_type.get_liquids_mut() else {
-                    continue;
-                };
+                continue;
+            };
 
             *liquids = liquid_leveler.target;
         }

@@ -72,7 +72,7 @@ impl<T: ObjectProperties> DerefMut for Object<T> {
 }
 
 pub trait ObjectProperties: 'static {
-    fn air_levelers(&self) -> Option<Box<dyn Iterator<Item = &AirLeveler> + '_>>;
-    fn oxygen_users(&self) -> Option<Box<dyn Iterator<Item = &OxygenUser> + '_>>;
-    fn liquid_levelers(&self) -> Option<Box<dyn Iterator<Item = &LiquidLeveler> + '_>>;
+    fn air_levelers(&self) -> Vec<&AirLeveler>;
+    fn oxygen_users(&self) -> Vec<&OxygenUser>;
+    fn liquid_levelers(&self) -> Vec<&LiquidLeveler>;
 }
