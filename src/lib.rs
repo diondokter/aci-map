@@ -15,6 +15,7 @@ mod object_id;
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     pub tiles: [[Tile; HEIGHT]; WIDTH],
     next_object_id: usize,
+    current_time: f64,
     environment_objects: Vec<Object<EnvironmentObject>>,
 }
 
@@ -35,6 +36,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         Self {
             tiles: [[Tile::new_default(); HEIGHT]; WIDTH],
             next_object_id: 0,
+            current_time: 0.0,
             environment_objects: Vec::new(),
         }
     }
@@ -230,6 +232,8 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
         self.apply_air_diff(air_diff, delta_time);
         self.apply_liquid_diff(water_diff, lava_diff);
+
+        self.current_time += delta_time as f64;
     }
 
     fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
