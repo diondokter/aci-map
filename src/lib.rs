@@ -1,5 +1,6 @@
 #![feature(const_type_id)]
 
+use building::Building;
 use environment_object::EnvironmentObject;
 use object_id::{Object, ObjectId, ObjectProperties};
 use std::{
@@ -17,6 +18,7 @@ pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     next_object_id: usize,
     current_time: f64,
     environment_objects: Vec<Object<EnvironmentObject>>,
+    buildings: Vec<Object<Building>>,
 }
 
 /// Get an `Iterator<item = &dyn ObjectProperties>` containing all map objects.
@@ -30,6 +32,7 @@ macro_rules! all_map_objects {
 }
 
 const ENVIRONMENT_OBJECT: TypeId = TypeId::of::<EnvironmentObject>();
+const BUILDING_OBJECT: TypeId = TypeId::of::<Building>();
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     pub const fn new_default() -> Self {
@@ -38,6 +41,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             next_object_id: 0,
             current_time: 0.0,
             environment_objects: Vec::new(),
+            buildings: Vec::new(),
         }
     }
 
@@ -86,6 +90,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     fn get_vec_of_type<T: ObjectProperties>(&self) -> &Vec<Object<T>> {
         match TypeId::of::<T>() {
             ENVIRONMENT_OBJECT => unsafe { std::mem::transmute(&self.environment_objects) },
+            BUILDING_OBJECT => unsafe { std::mem::transmute(&self.buildings) },
             _ => unreachable!(),
         }
     }
@@ -93,6 +98,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     fn get_vec_of_type_mut<T: ObjectProperties>(&mut self) -> &mut Vec<Object<T>> {
         match TypeId::of::<T>() {
             ENVIRONMENT_OBJECT => unsafe { std::mem::transmute(&mut self.environment_objects) },
+            BUILDING_OBJECT => unsafe { std::mem::transmute(&mut self.buildings) },
             _ => unreachable!("{} is not covered", type_name::<T>()),
         }
     }
@@ -388,7 +394,10 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 target_air.oxygen += oxygen_taken;
                 target_air.fumes += fumes_taken;
 
-                let source_air = self.tiles[air_pusher.x][air_pusher.y].tile_type.get_air_mut().unwrap();
+                let source_air = self.tiles[air_pusher.x][air_pusher.y]
+                    .tile_type
+                    .get_air_mut()
+                    .unwrap();
 
                 source_air.nitrogen -= nitrogen_taken;
                 source_air.oxygen -= oxygen_taken;
@@ -722,41 +731,92 @@ impl Liquid for Lava {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct AirLeveler {
-    pub x: usize,
-    pub y: usize,
+#[derive(Debug, Clone, Copy)]
+pub struct AirLeveler<COORD> {
+    pub x: COORD,
+    pub y: COORD,
     pub nitrogen: f32,
     pub oxygen: f32,
     pub fumes: f32,
 }
 
-#[derive(Debug, Clone)]
-pub struct OxygenUser {
-    pub x: usize,
-    pub y: usize,
+impl AirLeveler<isize> {
+    pub fn to_absolute(self, base_x: usize, base_y: usize) -> AirLeveler<usize> {
+        AirLeveler {
+            x: base_x.wrapping_add_signed(self.x),
+            y: base_y.wrapping_add_signed(self.y),
+            nitrogen: self.nitrogen,
+            oxygen: self.oxygen,
+            fumes: self.fumes,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct OxygenUser<COORD> {
+    pub x: COORD,
+    pub y: COORD,
     pub minimum_pressure_required: f32,
     pub minimum_oxygen_fraction_required: f32,
     pub change_per_sec: f32,
 }
 
-#[derive(Debug, Clone)]
-pub struct AirPusher {
-    pub x: usize,
-    pub y: usize,
+impl OxygenUser<isize> {
+    pub fn to_absolute(self, base_x: usize, base_y: usize) -> OxygenUser<usize> {
+        OxygenUser {
+            x: base_x.wrapping_add_signed(self.x),
+            y: base_y.wrapping_add_signed(self.y),
+            minimum_pressure_required: self.minimum_pressure_required,
+            minimum_oxygen_fraction_required: self.minimum_oxygen_fraction_required,
+            change_per_sec: self.change_per_sec,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AirPusher<COORD> {
+    pub x: COORD,
+    pub y: COORD,
     pub direction: Facing,
     /// Fraction of the air in the pusher location that is push into the given direction per second
     pub amount: f32,
 }
 
-#[derive(Debug, Clone)]
-pub struct LiquidLeveler {
-    pub x: usize,
-    pub y: usize,
+impl AirPusher<isize> {
+    pub fn to_absolute(
+        self,
+        base_x: usize,
+        base_y: usize,
+        base_direction: Facing,
+    ) -> AirPusher<usize> {
+        AirPusher {
+            x: base_x.wrapping_add_signed(self.x),
+            y: base_y.wrapping_add_signed(self.y),
+            direction: base_direction.rotate(self.direction),
+            amount: self.amount,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LiquidLeveler<COORD> {
+    pub x: COORD,
+    pub y: COORD,
     pub target: LiquidData,
 }
 
-#[derive(Debug, Clone)]
+impl LiquidLeveler<isize> {
+    pub fn to_absolute(self, base_x: usize, base_y: usize) -> LiquidLeveler<usize> {
+        LiquidLeveler {
+            x: base_x.wrapping_add_signed(self.x),
+            y: base_y.wrapping_add_signed(self.y),
+            target: self.target,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, num_enum::UnsafeFromPrimitive)]
+#[repr(u8)]
 pub enum Facing {
     North,
     East,
@@ -776,6 +836,15 @@ impl Facing {
             Facing::South => (y < HEIGHT - 1).then(|| (x, y + 1)),
             Facing::West => (x > 0).then(|| (x - 1, y)),
         }
+    }
+
+    /// Rotates a facing. The default is North.
+    ///
+    /// So East rotate East = South.
+    pub fn rotate(self, applied: Facing) -> Self {
+        use num_enum::UnsafeFromPrimitive;
+        let new_discriminant = (self as u8 + applied as u8) % 4;
+        unsafe { Self::unchecked_transmute_from(new_discriminant) }
     }
 }
 

@@ -72,16 +72,16 @@ impl<T: ObjectProperties> DerefMut for Object<T> {
 }
 
 pub trait ObjectProperties: 'static {
-    fn air_levelers(&self) -> Vec<&AirLeveler> {
+    fn air_levelers(&self) -> Vec<AirLeveler<usize>> {
         Vec::new()
     }
-    fn oxygen_users(&self) -> Vec<&OxygenUser>{
+    fn oxygen_users(&self) -> Vec<OxygenUser<usize>>{
         Vec::new()
     }
-    fn liquid_levelers(&self) -> Vec<&LiquidLeveler> {
+    fn liquid_levelers(&self) -> Vec<LiquidLeveler<usize>> {
         Vec::new()
     }
-    fn air_pushers(&self) -> Vec<&AirPusher> {
+    fn air_pushers(&self) -> Vec<AirPusher<usize>> {
         Vec::new()
     }
 }
