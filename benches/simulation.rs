@@ -1,4 +1,6 @@
-use aci_map::{AirLeveler, LiquidData, LiquidLeveler, Map, OxygenUser, environment_object::EnvironmentObject};
+use aci_map::{
+    environment_object::EnvironmentObject, AirLeveler, LiquidData, LiquidLeveler, Map, OxygenUser,
+};
 use criterion::{black_box, criterion_group, Criterion};
 
 fn simulate_map<const WIDTH: usize, const HEIGHT: usize>(map: &mut Map<WIDTH, HEIGHT>) {
@@ -25,8 +27,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     map.push_object::<EnvironmentObject>(OxygenUser {
         x: 50,
         y: 50,
-        minimum_pressure_required: 0.1,
-        minimum_oxygen_fraction_required: 0.1,
         change_per_sec: 0.001,
     });
 

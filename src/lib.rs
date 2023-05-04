@@ -1,6 +1,7 @@
 #![feature(const_type_id)]
 
 use building::Building;
+use characters::Character;
 use environment_object::EnvironmentObject;
 use object_id::{Object, ObjectId, ObjectProperties};
 use std::{
@@ -8,9 +9,10 @@ use std::{
     ops::{Add, Deref},
 };
 
-mod building;
+pub mod building;
+pub mod characters;
 pub mod environment_object;
-mod object_id;
+pub mod object_id;
 
 #[derive(Debug)]
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
@@ -19,20 +21,33 @@ pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     current_time: f64,
     environment_objects: Vec<Object<EnvironmentObject>>,
     buildings: Vec<Object<Building>>,
+    characters: Vec<Object<Character>>,
 }
 
 /// Get an `Iterator<item = &dyn ObjectProperties>` containing all map objects.
 /// This is a macro because a function would borrow the whole map object instead of just the object fields
 macro_rules! all_map_objects {
-    ($map:ident) => {
-        $map.environment_objects
+    ($map:ident) => {{
+        let eo = $map
+            .environment_objects
             .iter()
-            .map(|eo| eo.deref() as &dyn ObjectProperties)
-    };
+            .map(|val| val.deref() as &dyn ObjectProperties);
+        let b = $map
+            .buildings
+            .iter()
+            .map(|val| val.deref() as &dyn ObjectProperties);
+        let c = $map
+            .characters
+            .iter()
+            .map(|val| val.deref() as &dyn ObjectProperties);
+
+        eo.chain(b).chain(c)
+    }};
 }
 
 const ENVIRONMENT_OBJECT: TypeId = TypeId::of::<EnvironmentObject>();
 const BUILDING_OBJECT: TypeId = TypeId::of::<Building>();
+const CHARACTER_OBJECT: TypeId = TypeId::of::<Character>();
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     pub const fn new_default() -> Self {
@@ -42,6 +57,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             current_time: 0.0,
             environment_objects: Vec::new(),
             buildings: Vec::new(),
+            characters: Vec::new(),
         }
     }
 
@@ -91,6 +107,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         match TypeId::of::<T>() {
             ENVIRONMENT_OBJECT => unsafe { std::mem::transmute(&self.environment_objects) },
             BUILDING_OBJECT => unsafe { std::mem::transmute(&self.buildings) },
+            CHARACTER_OBJECT => unsafe { std::mem::transmute(&self.characters) },
             _ => unreachable!(),
         }
     }
@@ -99,6 +116,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         match TypeId::of::<T>() {
             ENVIRONMENT_OBJECT => unsafe { std::mem::transmute(&mut self.environment_objects) },
             BUILDING_OBJECT => unsafe { std::mem::transmute(&mut self.buildings) },
+            CHARACTER_OBJECT => unsafe { std::mem::transmute(&mut self.characters) },
             _ => unreachable!("{} is not covered", type_name::<T>()),
         }
     }
@@ -109,6 +127,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             .flatten()
     }
 
+    #[cfg(test)]
     pub fn collect_air_pressure_map(&self) -> [[f32; HEIGHT]; WIDTH] {
         let mut result = [[0.0; HEIGHT]; WIDTH];
 
@@ -123,6 +142,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         result
     }
 
+    #[cfg(test)]
     pub fn collect_oxygen_map(&self) -> [[f32; HEIGHT]; WIDTH] {
         let mut result = [[0.0; HEIGHT]; WIDTH];
 
@@ -137,6 +157,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         result
     }
 
+    #[cfg(test)]
     pub fn collect_fumes_map(&self) -> [[f32; HEIGHT]; WIDTH] {
         let mut result = [[0.0; HEIGHT]; WIDTH];
 
@@ -151,6 +172,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         result
     }
 
+    #[cfg(test)]
     pub fn collect_liquids_map<L: Liquid>(&self) -> [[f32; HEIGHT]; WIDTH] {
         let mut result = [[0.0; HEIGHT]; WIDTH];
 
@@ -165,6 +187,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         result
     }
 
+    #[cfg(test)]
     pub fn collect_surface_level_map(&self) -> [[f32; HEIGHT]; WIDTH] {
         let mut result = [[0.0; HEIGHT]; WIDTH];
 
@@ -179,6 +202,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         result
     }
 
+    #[cfg(test)]
     pub fn collect_ground_level_map(&self) -> [[f32; HEIGHT]; WIDTH] {
         let mut result = [[0.0; HEIGHT]; WIDTH];
 
@@ -350,19 +374,9 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             }
 
             for oxygen_user in map_object.oxygen_users() {
-                let Some((air, liquids)) = self.tiles[oxygen_user.x][oxygen_user.y].tile_type.get_ground_mut() else {
+                let Some(air) = self.tiles[oxygen_user.x][oxygen_user.y].tile_type.get_air_mut() else {
                     continue;
                 };
-
-                let air_pressure = air.air_pressure(liquids.get_level::<AnyLiquid>());
-
-                if air_pressure < oxygen_user.minimum_pressure_required {
-                    continue;
-                }
-
-                if air.oxygen / air_pressure < oxygen_user.minimum_oxygen_fraction_required {
-                    continue;
-                }
 
                 if air.oxygen < oxygen_user.change_per_sec * delta_time {
                     continue;
@@ -756,8 +770,6 @@ impl AirLeveler<isize> {
 pub struct OxygenUser<COORD> {
     pub x: COORD,
     pub y: COORD,
-    pub minimum_pressure_required: f32,
-    pub minimum_oxygen_fraction_required: f32,
     pub change_per_sec: f32,
 }
 
@@ -766,8 +778,6 @@ impl OxygenUser<isize> {
         OxygenUser {
             x: base_x.wrapping_add_signed(self.x),
             y: base_y.wrapping_add_signed(self.y),
-            minimum_pressure_required: self.minimum_pressure_required,
-            minimum_oxygen_fraction_required: self.minimum_oxygen_fraction_required,
             change_per_sec: self.change_per_sec,
         }
     }
@@ -815,7 +825,13 @@ impl LiquidLeveler<isize> {
     }
 }
 
-#[derive(Debug, Clone, Copy, num_enum::UnsafeFromPrimitive)]
+/// A cardinal direction something can be facing to.
+///
+/// When used for rotation (for example in buildings), the North facing is the identity rotation.
+///
+/// The coord system has the 0,0 at the North-West.
+/// So going north is -y, going east is +x, going south is +y, going west is -x.
+#[derive(Debug, Clone, Copy, num_enum::UnsafeFromPrimitive, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Facing {
     North,
@@ -846,11 +862,40 @@ impl Facing {
         let new_discriminant = (self as u8 + applied as u8) % 4;
         unsafe { Self::unchecked_transmute_from(new_discriminant) }
     }
+
+    /// Rotate the given coords according to the facing.
+    /// They will be rotated relative to 0,0
+    pub fn rotate_isize_coords(&self, x: isize, y: isize) -> (isize, isize) {
+        match self {
+            Facing::North => (x, y),
+            Facing::East => (-y, x),
+            Facing::South => (-x, -y),
+            Facing::West => (y, -x),
+        }
+    }
+
+    /// Rotate the given coords according to the facing.
+    /// They will be rotated relative to 0.5,0.5 (which is the middle of tile 0,0)
+    pub fn rotate_f32_coords(&self, mut x: f32, mut y: f32) -> (f32, f32) {
+        x -= 0.5;
+        y -= 0.5;
+
+        let (x, y) = match self {
+            Facing::North => (x, y),
+            Facing::East => (-y, x),
+            Facing::South => (-x, -y),
+            Facing::West => (y, -x),
+        };
+
+        (x + 0.5, y + 0.5)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::{fs::File, path::PathBuf};
+
+    use approx::assert_relative_eq;
 
     use super::*;
 
@@ -966,6 +1011,83 @@ mod tests {
     }
 
     #[test]
+    fn facing_rotation() {
+        assert_eq!(Facing::North.rotate(Facing::North), Facing::North);
+        assert_eq!(Facing::North.rotate(Facing::East), Facing::East);
+        assert_eq!(Facing::North.rotate(Facing::South), Facing::South);
+        assert_eq!(Facing::North.rotate(Facing::West), Facing::West);
+
+        assert_eq!(Facing::East.rotate(Facing::North), Facing::East);
+        assert_eq!(Facing::East.rotate(Facing::East), Facing::South);
+        assert_eq!(Facing::East.rotate(Facing::South), Facing::West);
+        assert_eq!(Facing::East.rotate(Facing::West), Facing::North);
+
+        assert_eq!(Facing::South.rotate(Facing::North), Facing::South);
+        assert_eq!(Facing::South.rotate(Facing::East), Facing::West);
+        assert_eq!(Facing::South.rotate(Facing::South), Facing::North);
+        assert_eq!(Facing::South.rotate(Facing::West), Facing::East);
+
+        assert_eq!(Facing::West.rotate(Facing::North), Facing::West);
+        assert_eq!(Facing::West.rotate(Facing::East), Facing::North);
+        assert_eq!(Facing::West.rotate(Facing::South), Facing::East);
+        assert_eq!(Facing::West.rotate(Facing::West), Facing::South);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn facing_move_coords_in_direction() {
+        assert_eq!(Facing::North.move_coords_in_direction::<5, 10>(2, 0), None);
+        assert_eq!(Facing::North.move_coords_in_direction::<5, 10>(0, 1), Some((0, 0)));
+        assert_eq!(Facing::North.move_coords_in_direction::<5, 10>(4, 9), Some((4, 8)));
+
+        assert_eq!(Facing::East.move_coords_in_direction::<5, 10>(4, 2), None);
+        assert_eq!(Facing::East.move_coords_in_direction::<5, 10>(3, 1), Some((4, 1)));
+        assert_eq!(Facing::East.move_coords_in_direction::<5, 10>(0, 9), Some((1, 9)));
+
+        assert_eq!(Facing::South.move_coords_in_direction::<5, 10>(4, 9), None);
+        assert_eq!(Facing::South.move_coords_in_direction::<5, 10>(0, 8), Some((0, 9)));
+        assert_eq!(Facing::South.move_coords_in_direction::<5, 10>(2, 0), Some((2, 1)));
+
+        assert_eq!(Facing::West.move_coords_in_direction::<5, 10>(0, 6), None);
+        assert_eq!(Facing::West.move_coords_in_direction::<5, 10>(1, 1), Some((0, 1)));
+        assert_eq!(Facing::West.move_coords_in_direction::<5, 10>(4, 9), Some((3, 9)));
+    }
+
+    #[test]
+    fn facing_rotate_isize() {
+        assert_eq!(Facing::North.rotate_isize_coords(0, 0), (0, 0));
+        assert_eq!(Facing::East.rotate_isize_coords(0, 0), (0, 0));
+        assert_eq!(Facing::South.rotate_isize_coords(0, 0), (0, 0));
+        assert_eq!(Facing::West.rotate_isize_coords(0, 0), (0, 0));
+
+        assert_eq!(Facing::North.rotate_isize_coords(2, 1), (2, 1));
+        assert_eq!(Facing::East.rotate_isize_coords(2, 1), (-1, 2));
+        assert_eq!(Facing::South.rotate_isize_coords(2, 1), (-2, -1));
+        assert_eq!(Facing::West.rotate_isize_coords(2, 1), (1, -2));
+    }
+
+    #[test]
+    fn facing_rotate_f32() {
+        assert_relative_eq!(Facing::North.rotate_f32_coords(0.7, 0.6).0, (0.7, 0.6).0);
+        assert_relative_eq!(Facing::North.rotate_f32_coords(0.7, 0.6).1, (0.7, 0.6).1);
+        assert_relative_eq!(Facing::East.rotate_f32_coords(0.7, 0.6).0, (0.4, 0.7).0);
+        assert_relative_eq!(Facing::East.rotate_f32_coords(0.7, 0.6).1, (0.4, 0.7).1);
+        assert_relative_eq!(Facing::South.rotate_f32_coords(0.7, 0.6).0, (0.3, 0.4).0);
+        assert_relative_eq!(Facing::South.rotate_f32_coords(0.7, 0.6).1, (0.3, 0.4).1);
+        assert_relative_eq!(Facing::West.rotate_f32_coords(0.7, 0.6).0, (0.6, 0.3).0);
+        assert_relative_eq!(Facing::West.rotate_f32_coords(0.7, 0.6).1, (0.6, 0.3).1);
+
+        assert_relative_eq!(Facing::North.rotate_f32_coords(2.5, 1.5).0, (2.5, 1.5).0);
+        assert_relative_eq!(Facing::North.rotate_f32_coords(2.5, 1.5).1, (2.5, 1.5).1);
+        assert_relative_eq!(Facing::East.rotate_f32_coords(2.5, 1.5).0, (-0.5, 2.5).0);
+        assert_relative_eq!(Facing::East.rotate_f32_coords(2.5, 1.5).1, (-0.5, 2.5).1);
+        assert_relative_eq!(Facing::South.rotate_f32_coords(2.5, 1.5).0, (-1.5, -0.5).0);
+        assert_relative_eq!(Facing::South.rotate_f32_coords(2.5, 1.5).1, (-1.5, -0.5).1);
+        assert_relative_eq!(Facing::West.rotate_f32_coords(2.5, 1.5).0, (1.5, -1.5).0);
+        assert_relative_eq!(Facing::West.rotate_f32_coords(2.5, 1.5).1, (1.5, -1.5).1);
+    }
+
+    #[test]
     fn air_pressure() {
         std::thread::Builder::new()
             .name("TestThread".into())
@@ -989,15 +1111,11 @@ mod tests {
                 map.push_object::<EnvironmentObject>(OxygenUser {
                     x: 5,
                     y: 5,
-                    minimum_pressure_required: 0.1,
-                    minimum_oxygen_fraction_required: 0.10,
                     change_per_sec: 0.0001,
                 });
                 map.push_object::<EnvironmentObject>(OxygenUser {
                     x: 18,
                     y: 2,
-                    minimum_pressure_required: 0.1,
-                    minimum_oxygen_fraction_required: 0.10,
                     change_per_sec: 0.0001,
                 });
 

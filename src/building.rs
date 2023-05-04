@@ -1,5 +1,7 @@
 use crate::{
-    object_id::ObjectProperties, AirLeveler, AirPusher, Facing, LiquidLeveler, OxygenUser,
+    characters::Character,
+    object_id::{ObjectId, ObjectProperties},
+    AirLeveler, AirPusher, Facing, LiquidLeveler, OxygenUser,
 };
 
 #[derive(Debug)]
@@ -8,6 +10,15 @@ pub struct Building {
     pub y: usize,
     pub facing: Facing,
     pub building_type: BuildingType,
+}
+
+impl Building {
+    fn workspots(&self) -> &[WorkSpot] {
+        todo!()
+    }
+    fn workspots_mut(&mut self) -> &mut [WorkSpot] {
+        todo!()
+    }
 }
 
 impl ObjectProperties for Building {
@@ -46,7 +57,7 @@ impl ObjectProperties for Building {
 
 #[derive(Debug)]
 pub enum BuildingType {
-    Fan {},
+    HandCrankedFan { workspots: [WorkSpot; 2] },
 }
 
 impl BuildingType {
@@ -62,4 +73,21 @@ impl BuildingType {
     fn air_pushers(&self) -> Vec<AirPusher<isize>> {
         Vec::new()
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkSpot {
+    pub x: f32,
+    pub y: f32,
+    pub occupation: WorkSpotOccupation,
+}
+
+#[derive(Debug, Clone)]
+pub enum WorkSpotOccupation {
+    /// No character is working this spot, nor is one coming to work it
+    Open,
+    /// No character is working this spot, but one is coming to work it
+    Claimed(ObjectId<Character>),
+    /// A character is working this spot
+    Working(ObjectId<Character>),
 }

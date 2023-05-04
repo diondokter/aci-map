@@ -1,4 +1,4 @@
-use crate::{object_id::ObjectProperties, AirLeveler, LiquidLeveler, OxygenUser, AirPusher};
+use crate::{object_id::ObjectProperties, AirLeveler, AirPusher, LiquidLeveler, OxygenUser};
 
 #[derive(Debug)]
 pub enum EnvironmentObject {

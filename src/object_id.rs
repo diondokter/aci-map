@@ -1,8 +1,8 @@
+use crate::{AirLeveler, AirPusher, LiquidLeveler, OxygenUser};
 use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
-use crate::{AirLeveler, LiquidLeveler, OxygenUser, AirPusher};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ObjectId<T> {
@@ -75,7 +75,7 @@ pub trait ObjectProperties: 'static {
     fn air_levelers(&self) -> Vec<AirLeveler<usize>> {
         Vec::new()
     }
-    fn oxygen_users(&self) -> Vec<OxygenUser<usize>>{
+    fn oxygen_users(&self) -> Vec<OxygenUser<usize>> {
         Vec::new()
     }
     fn liquid_levelers(&self) -> Vec<LiquidLeveler<usize>> {
