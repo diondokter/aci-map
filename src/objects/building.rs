@@ -1,8 +1,9 @@
 use crate::{
-    characters::Character,
-    object_id::{ObjectId, ObjectProperties},
-    AirLeveler, AirPusher, Facing, LiquidLeveler, OxygenUser,
+    air::{AirLeveler, AirPusher, OxygenUser},
+    liquids::LiquidLeveler,
+    Facing,
 };
+use super::{ObjectProperties, ObjectId, characters::Character};
 
 #[derive(Debug)]
 pub struct Building {
@@ -13,11 +14,16 @@ pub struct Building {
 }
 
 impl Building {
-    fn workspots(&self) -> &[WorkSpot] {
-        todo!()
+    pub fn workspots(&self) -> &[WorkSpot] {
+        match &self.building_type {
+            BuildingType::HandCrankedVentilator { workspots } => &workspots[..],
+        }
     }
-    fn workspots_mut(&mut self) -> &mut [WorkSpot] {
-        todo!()
+    
+    pub fn workspots_mut(&mut self) -> &mut [WorkSpot] {
+        match &mut self.building_type {
+            BuildingType::HandCrankedVentilator { workspots } => &mut workspots[..],
+        }
     }
 }
 
@@ -57,7 +63,7 @@ impl ObjectProperties for Building {
 
 #[derive(Debug)]
 pub enum BuildingType {
-    HandCrankedFan { workspots: [WorkSpot; 2] },
+    HandCrankedVentilator { workspots: [WorkSpot; 2] },
 }
 
 impl BuildingType {
