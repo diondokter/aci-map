@@ -39,6 +39,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         }
     }
 
+    #[inline(always)]
     pub fn all_tile_coords(&self) -> impl Iterator<Item = (usize, usize)> {
         (0..WIDTH)
             .map(|x| (0..HEIGHT).map(move |y| (x, y)))
