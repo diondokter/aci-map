@@ -1,3 +1,5 @@
+use glam::{Vec2, UVec2};
+
 use super::{characters::Character, ObjectId, ObjectProperties};
 use crate::{
     air::{AirLeveler, AirPusher, OxygenUser},
@@ -6,14 +8,25 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(crate) struct Building {
-    pub(crate) x: usize,
-    pub(crate) y: usize,
-    pub(crate) facing: Facing,
-    pub(crate) building_type: BuildingType,
+pub struct Building {
+    pub location: UVec2,
+    pub facing: Facing,
+    pub building_type: BuildingType,
 }
 
 impl Building {
+    pub(crate) fn workspots(&self) -> Vec<WorkSpot> {
+        self.building_type
+            .relative_workspots()
+            .iter()
+            .cloned()
+            .map(|mut workspot| {
+                let absolute_location = self.facing.rotate_f32_coords(workspot.location);
+                workspot.location = absolute_location;
+                workspot
+            })
+            .collect()
+    }
 }
 
 impl ObjectProperties for Building {
@@ -21,7 +34,7 @@ impl ObjectProperties for Building {
         self.building_type
             .air_levelers()
             .into_iter()
-            .map(|val| val.to_absolute(self.x, self.y))
+            .map(|val| val.to_absolute(self.location.x as usize, self.location.y as usize))
             .collect()
     }
 
@@ -29,7 +42,7 @@ impl ObjectProperties for Building {
         self.building_type
             .oxygen_users()
             .into_iter()
-            .map(|val| val.to_absolute(self.x, self.y))
+            .map(|val| val.to_absolute(self.location.x as usize, self.location.y as usize))
             .collect()
     }
 
@@ -37,7 +50,7 @@ impl ObjectProperties for Building {
         self.building_type
             .liquid_levelers()
             .into_iter()
-            .map(|val| val.to_absolute(self.x, self.y))
+            .map(|val| val.to_absolute(self.location.x as usize, self.location.y as usize))
             .collect()
     }
 
@@ -45,13 +58,13 @@ impl ObjectProperties for Building {
         self.building_type
             .air_pushers()
             .into_iter()
-            .map(|val| val.to_absolute(self.x, self.y, self.facing))
+            .map(|val| val.to_absolute(self.location.x as usize, self.location.y as usize, self.facing))
             .collect()
     }
 }
 
 #[derive(Debug)]
-pub(crate) enum BuildingType {
+pub enum BuildingType {
     HandCrankedVentilator { workspots: [WorkSpot; 2] },
 }
 
@@ -71,21 +84,40 @@ impl BuildingType {
     fn air_pushers(&self) -> Vec<AirPusher<isize>> {
         Vec::new()
     }
+
+    pub(crate) fn is_ventilator(&self) -> bool {
+        matches!(self, Self::HandCrankedVentilator { .. })
+    }
+
+    fn relative_workspots(&self) -> &[WorkSpot] {
+        match self {
+            BuildingType::HandCrankedVentilator { workspots } => workspots,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct WorkSpot {
-    pub(crate) x: f32,
-    pub(crate) y: f32,
-    pub(crate) occupation: WorkSpotOccupation,
+pub struct WorkSpot {
+    pub location: Vec2,
+    pub occupation: WorkSpotOccupation,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum WorkSpotOccupation {
+pub enum WorkSpotOccupation {
     /// No character is working this spot, nor is one coming to work it
     Open,
     /// No character is working this spot, but one is coming to work it
     Claimed(ObjectId<Character>),
     /// A character is working this spot
     Working(ObjectId<Character>),
+}
+
+impl WorkSpotOccupation {
+    /// Returns `true` if the work spot occupation is [`Open`].
+    ///
+    /// [`Open`]: WorkSpotOccupation::Open
+    #[must_use]
+    pub(crate) fn is_open(&self) -> bool {
+        matches!(self, Self::Open)
+    }
 }

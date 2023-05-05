@@ -1,3 +1,5 @@
+use glam::{Vec2, vec2};
+
 /// A cardinal direction something can be facing to.
 ///
 /// When used for rotation (for example in buildings), the North facing is the identity rotation.
@@ -52,18 +54,17 @@ impl Facing {
     /// Rotate the given coords according to the facing.
     /// They will be rotated relative to 0.5,0.5 (which is the middle of tile 0,0)
 
-    pub(crate) fn rotate_f32_coords(&self, mut x: f32, mut y: f32) -> (f32, f32) {
-        x -= 0.5;
-        y -= 0.5;
+    pub(crate) fn rotate_f32_coords(&self, mut coords: Vec2) -> Vec2 {
+        coords -= vec2(0.5, 0.5);
 
-        let (x, y) = match self {
-            Facing::North => (x, y),
-            Facing::East => (-y, x),
-            Facing::South => (-x, -y),
-            Facing::West => (y, -x),
+        let coords = match self {
+            Facing::North => coords,
+            Facing::East => vec2(-coords.y, coords.x),
+            Facing::South => vec2(-coords.x, -coords.y),
+            Facing::West => vec2(coords.y, -coords.x),
         };
 
-        (x + 0.5, y + 0.5)
+        coords + vec2(0.5, 0.5)
     }
 }
 
@@ -130,23 +131,24 @@ mod tests {
     }
 
     #[test]
+    #[rustfmt::skip]
     fn facing_rotate_f32() {
-        assert_relative_eq!(Facing::North.rotate_f32_coords(0.7, 0.6).0, (0.7, 0.6).0);
-        assert_relative_eq!(Facing::North.rotate_f32_coords(0.7, 0.6).1, (0.7, 0.6).1);
-        assert_relative_eq!(Facing::East.rotate_f32_coords(0.7, 0.6).0, (0.4, 0.7).0);
-        assert_relative_eq!(Facing::East.rotate_f32_coords(0.7, 0.6).1, (0.4, 0.7).1);
-        assert_relative_eq!(Facing::South.rotate_f32_coords(0.7, 0.6).0, (0.3, 0.4).0);
-        assert_relative_eq!(Facing::South.rotate_f32_coords(0.7, 0.6).1, (0.3, 0.4).1);
-        assert_relative_eq!(Facing::West.rotate_f32_coords(0.7, 0.6).0, (0.6, 0.3).0);
-        assert_relative_eq!(Facing::West.rotate_f32_coords(0.7, 0.6).1, (0.6, 0.3).1);
+        assert_relative_eq!(Facing::North.rotate_f32_coords(vec2(0.7, 0.6)).x, (0.7, 0.6).0);
+        assert_relative_eq!(Facing::North.rotate_f32_coords(vec2(0.7, 0.6)).y, (0.7, 0.6).1);
+        assert_relative_eq!(Facing::East.rotate_f32_coords(vec2(0.7, 0.6)).x, (0.4, 0.7).0);
+        assert_relative_eq!(Facing::East.rotate_f32_coords(vec2(0.7, 0.6)).y, (0.4, 0.7).1);
+        assert_relative_eq!(Facing::South.rotate_f32_coords(vec2(0.7, 0.6)).x, (0.3, 0.4).0);
+        assert_relative_eq!(Facing::South.rotate_f32_coords(vec2(0.7, 0.6)).y, (0.3, 0.4).1);
+        assert_relative_eq!(Facing::West.rotate_f32_coords(vec2(0.7, 0.6)).x, (0.6, 0.3).0);
+        assert_relative_eq!(Facing::West.rotate_f32_coords(vec2(0.7, 0.6)).y, (0.6, 0.3).1);
 
-        assert_relative_eq!(Facing::North.rotate_f32_coords(2.5, 1.5).0, (2.5, 1.5).0);
-        assert_relative_eq!(Facing::North.rotate_f32_coords(2.5, 1.5).1, (2.5, 1.5).1);
-        assert_relative_eq!(Facing::East.rotate_f32_coords(2.5, 1.5).0, (-0.5, 2.5).0);
-        assert_relative_eq!(Facing::East.rotate_f32_coords(2.5, 1.5).1, (-0.5, 2.5).1);
-        assert_relative_eq!(Facing::South.rotate_f32_coords(2.5, 1.5).0, (-1.5, -0.5).0);
-        assert_relative_eq!(Facing::South.rotate_f32_coords(2.5, 1.5).1, (-1.5, -0.5).1);
-        assert_relative_eq!(Facing::West.rotate_f32_coords(2.5, 1.5).0, (1.5, -1.5).0);
-        assert_relative_eq!(Facing::West.rotate_f32_coords(2.5, 1.5).1, (1.5, -1.5).1);
+        assert_relative_eq!(Facing::North.rotate_f32_coords(vec2(2.5, 1.5)).x, (2.5, 1.5).0);
+        assert_relative_eq!(Facing::North.rotate_f32_coords(vec2(2.5, 1.5)).y, (2.5, 1.5).1);
+        assert_relative_eq!(Facing::East.rotate_f32_coords(vec2(2.5, 1.5)).x, (-0.5, 2.5).0);
+        assert_relative_eq!(Facing::East.rotate_f32_coords(vec2(2.5, 1.5)).y, (-0.5, 2.5).1);
+        assert_relative_eq!(Facing::South.rotate_f32_coords(vec2(2.5, 1.5)).x, (-1.5, -0.5).0);
+        assert_relative_eq!(Facing::South.rotate_f32_coords(vec2(2.5, 1.5)).y, (-1.5, -0.5).1);
+        assert_relative_eq!(Facing::West.rotate_f32_coords(vec2(2.5, 1.5)).x, (1.5, -1.5).0);
+        assert_relative_eq!(Facing::West.rotate_f32_coords(vec2(2.5, 1.5)).y, (1.5, -1.5).1);
     }
 }
