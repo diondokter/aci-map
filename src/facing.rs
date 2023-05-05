@@ -14,7 +14,7 @@ pub enum Facing {
 }
 
 impl Facing {
-    pub fn move_coords_in_direction<const WIDTH: usize, const HEIGHT: usize>(
+    pub(crate) fn move_coords_in_direction<const WIDTH: usize, const HEIGHT: usize>(
         &self,
         x: usize,
         y: usize,
@@ -30,7 +30,8 @@ impl Facing {
     /// Rotates a facing. The default is North.
     ///
     /// So East rotate East = South.
-    pub fn rotate(self, applied: Facing) -> Self {
+
+    pub(crate) fn rotate(self, applied: Facing) -> Self {
         use num_enum::UnsafeFromPrimitive;
         let new_discriminant = (self as u8 + applied as u8) % 4;
         unsafe { Self::unchecked_transmute_from(new_discriminant) }
@@ -38,7 +39,8 @@ impl Facing {
 
     /// Rotate the given coords according to the facing.
     /// They will be rotated relative to 0,0
-    pub fn rotate_isize_coords(&self, x: isize, y: isize) -> (isize, isize) {
+
+    pub(crate) fn rotate_isize_coords(&self, x: isize, y: isize) -> (isize, isize) {
         match self {
             Facing::North => (x, y),
             Facing::East => (-y, x),
@@ -49,7 +51,8 @@ impl Facing {
 
     /// Rotate the given coords according to the facing.
     /// They will be rotated relative to 0.5,0.5 (which is the middle of tile 0,0)
-    pub fn rotate_f32_coords(&self, mut x: f32, mut y: f32) -> (f32, f32) {
+
+    pub(crate) fn rotate_f32_coords(&self, mut x: f32, mut y: f32) -> (f32, f32) {
         x -= 0.5;
         y -= 0.5;
 

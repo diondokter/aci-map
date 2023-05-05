@@ -111,8 +111,8 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
 #[derive(Debug)]
 pub struct Object<T: ObjectProperties> {
-    pub(crate) id: usize,
-    pub(crate) object: T,
+    pub id: usize,
+    pub object: T,
 }
 
 impl<T: ObjectProperties> Object<T> {

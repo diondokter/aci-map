@@ -7,7 +7,7 @@ use crate::{
 };
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
-    pub fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
+    pub(crate) fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
         let mut air_diff_result = [[AirDiff::default(); HEIGHT]; WIDTH];
 
         const PRESSURE_SPREAD_RATE: f32 = 0.01;
@@ -92,7 +92,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         air_diff_result
     }
 
-    pub fn apply_air_diff(&mut self, air_diff: [[AirDiff; HEIGHT]; WIDTH], delta_time: f32) {
+    pub(crate) fn apply_air_diff(&mut self, air_diff: [[AirDiff; HEIGHT]; WIDTH], delta_time: f32) {
         for (x, y) in self.all_tile_coords() {
             let Some(air) = self.tiles[x][y].tile_type.get_air_mut() else {
                     continue;
@@ -163,7 +163,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 }
 
 #[derive(Default, Clone, Copy, Debug)]
-pub struct AirDiff {
+pub(crate) struct AirDiff {
     nitrogen: f32,
     oxygen: f32,
     fumes: f32,
@@ -171,9 +171,9 @@ pub struct AirDiff {
 
 #[derive(Clone, Copy, Debug)]
 pub struct AirData {
-    nitrogen: f32,
-    oxygen: f32,
-    fumes: f32,
+    pub nitrogen: f32,
+    pub oxygen: f32,
+    pub fumes: f32,
 }
 
 impl AirData {
@@ -185,23 +185,19 @@ impl AirData {
         }
     }
 
-    #[inline(always)]
-    pub fn nitrogen_fraction(&self) -> f32 {
+    pub(crate) fn nitrogen_fraction(&self) -> f32 {
         self.nitrogen / (self.nitrogen + self.oxygen + self.fumes)
     }
 
-    #[inline(always)]
-    pub fn oxygen_fraction(&self) -> f32 {
+    pub(crate) fn oxygen_fraction(&self) -> f32 {
         self.oxygen / (self.nitrogen + self.oxygen + self.fumes)
     }
 
-    #[inline(always)]
-    pub fn fumes_fraction(&self) -> f32 {
+    pub(crate) fn fumes_fraction(&self) -> f32 {
         self.fumes / (self.nitrogen + self.oxygen + self.fumes)
     }
 
-    #[inline(always)]
-    pub fn air_pressure(&self, liquid_level: f32) -> f32 {
+    pub(crate) fn air_pressure(&self, liquid_level: f32) -> f32 {
         (self.nitrogen + self.oxygen + self.fumes)
             / (1.0 - liquid_level / LiquidData::MAX_LEVEL).max(0.001)
     }
@@ -223,7 +219,7 @@ pub struct AirLeveler<COORD> {
 }
 
 impl AirLeveler<isize> {
-    pub fn to_absolute(self, base_x: usize, base_y: usize) -> AirLeveler<usize> {
+    pub(crate) fn to_absolute(self, base_x: usize, base_y: usize) -> AirLeveler<usize> {
         AirLeveler {
             x: base_x.wrapping_add_signed(self.x),
             y: base_y.wrapping_add_signed(self.y),
@@ -242,7 +238,7 @@ pub struct OxygenUser<COORD> {
 }
 
 impl OxygenUser<isize> {
-    pub fn to_absolute(self, base_x: usize, base_y: usize) -> OxygenUser<usize> {
+    pub(crate) fn to_absolute(self, base_x: usize, base_y: usize) -> OxygenUser<usize> {
         OxygenUser {
             x: base_x.wrapping_add_signed(self.x),
             y: base_y.wrapping_add_signed(self.y),
@@ -261,7 +257,7 @@ pub struct AirPusher<COORD> {
 }
 
 impl AirPusher<isize> {
-    pub fn to_absolute(
+    pub(crate) fn to_absolute(
         self,
         base_x: usize,
         base_y: usize,

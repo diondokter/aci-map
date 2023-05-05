@@ -1,7 +1,10 @@
 use crate::{all_map_objects, Map};
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
-    pub fn calculate_liquid_diff<L: Liquid>(&self, delta_time: f32) -> [[f32; HEIGHT]; WIDTH] {
+    pub(crate) fn calculate_liquid_diff<L: Liquid>(
+        &self,
+        delta_time: f32,
+    ) -> [[f32; HEIGHT]; WIDTH] {
         let mut liquid_diff_result = [[0.0; HEIGHT]; WIDTH];
 
         for (x, y) in self.all_tile_coords() {
@@ -46,7 +49,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         liquid_diff_result
     }
 
-    pub fn apply_liquid_diff(
+    pub(crate) fn apply_liquid_diff(
         &mut self,
         water_diff: [[f32; HEIGHT]; WIDTH],
         lava_diff: [[f32; HEIGHT]; WIDTH],
@@ -97,19 +100,17 @@ pub enum LiquidData {
 }
 
 impl LiquidData {
-    pub const MAX_LEVEL: f32 = 3.0;
+    pub(crate) const MAX_LEVEL: f32 = 3.0;
 
     pub const fn new_default() -> Self {
         Self::None
     }
 
-    #[inline(always)]
-    pub fn get_level<L: Liquid>(&self) -> f32 {
+    pub(crate) fn get_level<L: Liquid>(&self) -> f32 {
         self.get_level_optional::<L>().unwrap_or_default()
     }
 
-    #[inline(always)]
-    pub fn get_level_optional<L: Liquid>(&self) -> Option<f32> {
+    pub(crate) fn get_level_optional<L: Liquid>(&self) -> Option<f32> {
         L::get_level(self)
     }
 }
@@ -120,19 +121,18 @@ impl Default for LiquidData {
     }
 }
 
-pub trait Liquid {
+pub(crate) trait Liquid {
     const SPREAD_RATE: f32;
     const MINIMAL_HEIGHT_TO_SPREAD: f32;
 
     fn get_level(data: &LiquidData) -> Option<f32>;
 }
 
-pub struct AnyLiquid;
+pub(crate) struct AnyLiquid;
 impl Liquid for AnyLiquid {
     const SPREAD_RATE: f32 = 0.0;
     const MINIMAL_HEIGHT_TO_SPREAD: f32 = 0.0;
 
-    #[inline(always)]
     fn get_level(data: &LiquidData) -> Option<f32> {
         match data {
             LiquidData::None => None,
@@ -142,12 +142,11 @@ impl Liquid for AnyLiquid {
     }
 }
 
-pub struct Water;
+pub(crate) struct Water;
 impl Liquid for Water {
     const SPREAD_RATE: f32 = 0.01;
     const MINIMAL_HEIGHT_TO_SPREAD: f32 = 0.01;
 
-    #[inline(always)]
     fn get_level(data: &LiquidData) -> Option<f32> {
         match data {
             LiquidData::Water { level } => Some(*level),
@@ -156,12 +155,11 @@ impl Liquid for Water {
     }
 }
 
-pub struct Lava;
+pub(crate) struct Lava;
 impl Liquid for Lava {
     const SPREAD_RATE: f32 = 0.001;
     const MINIMAL_HEIGHT_TO_SPREAD: f32 = 0.1;
 
-    #[inline(always)]
     fn get_level(data: &LiquidData) -> Option<f32> {
         match data {
             LiquidData::Lava { level } => Some(*level),
@@ -178,7 +176,7 @@ pub struct LiquidLeveler<COORD> {
 }
 
 impl LiquidLeveler<isize> {
-    pub fn to_absolute(self, base_x: usize, base_y: usize) -> LiquidLeveler<usize> {
+    pub(crate) fn to_absolute(self, base_x: usize, base_y: usize) -> LiquidLeveler<usize> {
         LiquidLeveler {
             x: base_x.wrapping_add_signed(self.x),
             y: base_y.wrapping_add_signed(self.y),

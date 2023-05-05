@@ -42,16 +42,7 @@ impl TileType {
         }
     }
 
-    #[inline(always)]
-    pub fn get_ground(&self) -> Option<(&AirData, &LiquidData)> {
-        if let Self::Ground { air, liquids } = self {
-            Some((air, liquids))
-        } else {
-            None
-        }
-    }
-    #[inline(always)]
-    pub fn get_ground_mut(&mut self) -> Option<(&mut AirData, &mut LiquidData)> {
+    pub(crate) fn get_ground(&self) -> Option<(&AirData, &LiquidData)> {
         if let Self::Ground { air, liquids } = self {
             Some((air, liquids))
         } else {
@@ -59,16 +50,15 @@ impl TileType {
         }
     }
 
-    #[inline(always)]
-    pub fn get_air(&self) -> Option<&AirData> {
-        if let Self::Ground { air, .. } = self {
-            Some(air)
+    pub(crate) fn get_ground_mut(&mut self) -> Option<(&mut AirData, &mut LiquidData)> {
+        if let Self::Ground { air, liquids } = self {
+            Some((air, liquids))
         } else {
             None
         }
     }
-    #[inline(always)]
-    pub fn get_air_mut(&mut self) -> Option<&mut AirData> {
+
+    pub(crate) fn get_air(&self) -> Option<&AirData> {
         if let Self::Ground { air, .. } = self {
             Some(air)
         } else {
@@ -76,16 +66,23 @@ impl TileType {
         }
     }
 
-    #[inline(always)]
-    pub fn get_liquids(&self) -> Option<&LiquidData> {
+    pub(crate) fn get_air_mut(&mut self) -> Option<&mut AirData> {
+        if let Self::Ground { air, .. } = self {
+            Some(air)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn get_liquids(&self) -> Option<&LiquidData> {
         if let Self::Ground { liquids, .. } = self {
             Some(liquids)
         } else {
             None
         }
     }
-    #[inline(always)]
-    pub fn get_liquids_mut(&mut self) -> Option<&mut LiquidData> {
+
+    pub(crate) fn get_liquids_mut(&mut self) -> Option<&mut LiquidData> {
         if let Self::Ground { liquids, .. } = self {
             Some(liquids)
         } else {

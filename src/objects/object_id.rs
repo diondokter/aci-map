@@ -47,7 +47,7 @@ impl<T> PartialEq for ObjectId<T> {
 impl<T> Eq for ObjectId<T> {}
 
 impl<T> ObjectId<T> {
-    pub fn new(id: usize) -> Self {
+    pub(crate) fn new(id: usize) -> Self {
         Self {
             id,
             _phantom: PhantomData,
@@ -56,7 +56,7 @@ impl<T> ObjectId<T> {
 }
 
 impl<T: ObjectProperties> ObjectId<T> {
-    pub fn cast(self) -> ObjectId<()> {
+    pub(crate) fn cast(self) -> ObjectId<()> {
         ObjectId {
             id: self.id,
             _phantom: PhantomData,
@@ -65,7 +65,7 @@ impl<T: ObjectProperties> ObjectId<T> {
 }
 
 impl ObjectId<()> {
-    pub fn cast<T>(self) -> ObjectId<T> {
+    pub(crate) fn cast<T>(self) -> ObjectId<T> {
         ObjectId {
             id: self.id,
             _phantom: PhantomData,

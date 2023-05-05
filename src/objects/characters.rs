@@ -2,13 +2,13 @@ use super::{building::Building, ObjectId, ObjectProperties};
 use crate::air::OxygenUser;
 
 #[derive(Debug)]
-pub struct Character {
-    pub x: f32,
-    pub y: f32,
-    pub health: f32,
-    pub goals: [CharacterGoal; 2],
-    pub current_goal: CharacterGoal,
-    pub current_task: Option<CharacterTask>,
+pub(crate) struct Character {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) health: f32,
+    pub(crate) goals: [CharacterGoal; 2],
+    pub(crate) current_goal: CharacterGoal,
+    pub(crate) current_task: Option<CharacterTask>,
 }
 
 impl ObjectProperties for Character {
@@ -22,13 +22,13 @@ impl ObjectProperties for Character {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum CharacterGoal {
+pub(crate) enum CharacterGoal {
     WorkAtVentilation,
     Idle,
 }
 
 #[derive(Debug)]
-pub enum CharacterTask {
+pub(crate) enum CharacterTask {
     WorkAtSpot { building: ObjectId<Building> },
     Idle,
 }

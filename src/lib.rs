@@ -1,7 +1,7 @@
 #![feature(const_type_id)]
 
 use air::AirDiff;
-use liquids::{Water, Lava};
+use liquids::{Lava, Water};
 use objects::characters::Character;
 use objects::environment_object::EnvironmentObject;
 use objects::{building::Building, Object, ObjectProperties};
@@ -11,7 +11,7 @@ pub mod air;
 mod facing;
 pub mod liquids;
 pub mod objects;
-pub mod tiles;
+pub(crate) mod tiles;
 
 pub use facing::Facing;
 
@@ -108,7 +108,11 @@ impl<const WIDTH: usize, const HEIGHT: usize> Default for Map<WIDTH, HEIGHT> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{liquids::{AnyLiquid, Liquid, LiquidLeveler, LiquidData, Water, Lava}, air::{AirLeveler, OxygenUser, AirPusher}, tiles::TileType};
+    use crate::{
+        air::{AirLeveler, AirPusher, OxygenUser},
+        liquids::{AnyLiquid, Lava, Liquid, LiquidData, LiquidLeveler, Water},
+        tiles::TileType,
+    };
     use std::{fs::File, path::PathBuf};
 
     impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
