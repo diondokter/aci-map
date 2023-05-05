@@ -21,5 +21,4 @@ harness = false
 
 [profile.bench]
 opt-level = 3
-debug = true
 lto = true

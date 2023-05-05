@@ -14,17 +14,6 @@ pub(crate) struct Building {
 }
 
 impl Building {
-    pub(crate) fn workspots(&self) -> &[WorkSpot] {
-        match &self.building_type {
-            BuildingType::HandCrankedVentilator { workspots } => &workspots[..],
-        }
-    }
-
-    pub(crate) fn workspots_mut(&mut self) -> &mut [WorkSpot] {
-        match &mut self.building_type {
-            BuildingType::HandCrankedVentilator { workspots } => &mut workspots[..],
-        }
-    }
 }
 
 impl ObjectProperties for Building {
