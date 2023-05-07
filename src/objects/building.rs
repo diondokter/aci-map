@@ -1,4 +1,4 @@
-use glam::{Vec2, UVec2};
+use glam::{UVec2, Vec2};
 
 use super::{characters::Character, ObjectId, ObjectProperties};
 use crate::{
@@ -26,6 +26,50 @@ impl Building {
                 workspot
             })
             .collect()
+    }
+
+    pub(crate) fn release_workspot(&mut self, index: usize) {
+        let workspot = &mut self.building_type.relative_workspots_mut()[index];
+        workspot.occupation = WorkSpotOccupation::Open;
+    }
+
+    pub(crate) fn claim_workspot(
+        &mut self,
+        index: usize,
+        claimer: ObjectId<Character>,
+    ) -> Result<(), ()> {
+        let workspot = &mut self.building_type.relative_workspots_mut()[index];
+
+        workspot.occupation = match workspot.occupation {
+            WorkSpotOccupation::Open => WorkSpotOccupation::Claimed(claimer),
+            WorkSpotOccupation::Claimed(old_claimer) if old_claimer == claimer => {
+                WorkSpotOccupation::Claimed(claimer)
+            }
+            _ => return Err(()),
+        };
+
+        Ok(())
+    }
+
+    pub(crate) fn start_work_at_workspot(
+        &mut self,
+        index: usize,
+        claimer: ObjectId<Character>,
+    ) -> Result<(), ()> {
+        let workspot = &mut self.building_type.relative_workspots_mut()[index];
+
+        workspot.occupation = match workspot.occupation {
+            WorkSpotOccupation::Open => WorkSpotOccupation::Working(claimer),
+            WorkSpotOccupation::Claimed(old_claimer) if old_claimer == claimer => {
+                WorkSpotOccupation::Working(claimer)
+            }
+            WorkSpotOccupation::Working(old_claimer) if old_claimer == claimer => {
+                WorkSpotOccupation::Working(claimer)
+            }
+            _ => return Err(()),
+        };
+
+        Ok(())
     }
 }
 
@@ -58,7 +102,13 @@ impl ObjectProperties for Building {
         self.building_type
             .air_pushers()
             .into_iter()
-            .map(|val| val.to_absolute(self.location.x as usize, self.location.y as usize, self.facing))
+            .map(|val| {
+                val.to_absolute(
+                    self.location.x as usize,
+                    self.location.y as usize,
+                    self.facing,
+                )
+            })
             .collect()
     }
 }
@@ -90,6 +140,12 @@ impl BuildingType {
     }
 
     fn relative_workspots(&self) -> &[WorkSpot] {
+        match self {
+            BuildingType::HandCrankedVentilator { workspots } => workspots,
+        }
+    }
+
+    fn relative_workspots_mut(&mut self) -> &mut [WorkSpot] {
         match self {
             BuildingType::HandCrankedVentilator { workspots } => workspots,
         }

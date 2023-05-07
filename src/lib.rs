@@ -86,15 +86,20 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         let mut air_diff = [[AirDiff::default(); HEIGHT]; WIDTH];
         let mut water_diff = [[0.0; HEIGHT]; WIDTH];
         let mut lava_diff = [[0.0; HEIGHT]; WIDTH];
+        let mut ai_changes = Vec::new();
 
         rayon::scope(|s| {
             s.spawn(|_| air_diff = self.calculate_air_diff(delta_time));
             s.spawn(|_| water_diff = self.calculate_liquid_diff::<Water>(delta_time));
             s.spawn(|_| lava_diff = self.calculate_liquid_diff::<Lava>(delta_time));
+            s.spawn(|_| ai_changes = self.calculate_ai_changes());
         });
+
+        log::debug!("AI changes at {}: {:?}", self.current_time, ai_changes);
 
         self.apply_air_diff(air_diff, delta_time);
         self.apply_liquid_diff(water_diff, lava_diff);
+        self.apply_ai_changes(ai_changes.into_iter());
 
         self.current_time += delta_time as f64;
     }
@@ -108,10 +113,16 @@ impl<const WIDTH: usize, const HEIGHT: usize> Default for Map<WIDTH, HEIGHT> {
 
 #[cfg(test)]
 mod tests {
+    use glam::{uvec2, vec2};
+
     use super::*;
     use crate::{
         air::{AirLeveler, AirPusher, OxygenUser},
         liquids::{AnyLiquid, Lava, Liquid, LiquidData, LiquidLeveler, Water},
+        objects::{
+            building::{BuildingType, WorkSpot, WorkSpotOccupation},
+            characters::WorkGoal,
+        },
         tiles::TileType,
     };
     use std::{fs::File, path::PathBuf};
@@ -368,6 +379,27 @@ mod tests {
                     y: 8,
                     direction: Facing::West,
                     amount: 2.0,
+                });
+                map.push_object::<Character>(Character::new(
+                    vec2(0.5, 0.5),
+                    1.0,
+                    vec![WorkGoal::WorkAtVentilation],
+                ));
+                map.push_object::<Building>(Building {
+                    location: uvec2(4, 3),
+                    facing: Facing::South,
+                    building_type: BuildingType::HandCrankedVentilator {
+                        workspots: [
+                            WorkSpot {
+                                location: vec2(-0.4, -0.2),
+                                occupation: WorkSpotOccupation::Open,
+                            },
+                            WorkSpot {
+                                location: vec2(0.4, -0.2),
+                                occupation: WorkSpotOccupation::Open,
+                            },
+                        ],
+                    },
                 });
 
                 for (x, y) in map.all_tile_coords().filter(|(x, _)| *x >= 10) {
