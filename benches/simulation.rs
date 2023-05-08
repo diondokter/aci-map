@@ -7,7 +7,7 @@ use aci_map::{
 use criterion::{black_box, criterion_group, Criterion};
 
 fn simulate_map<const WIDTH: usize, const HEIGHT: usize>(map: &mut Map<WIDTH, HEIGHT>) {
-    map.simulate(0.05);
+    map.perform_simulation_tick(0.05);
 }
 
 fn criterion_benchmark(c: &mut Criterion) {

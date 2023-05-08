@@ -1,4 +1,4 @@
-use glam::{UVec2, Vec2};
+use glam::{vec2, UVec2, Vec2};
 
 use super::{characters::Character, ObjectId, ObjectProperties};
 use crate::{
@@ -21,7 +21,8 @@ impl Building {
             .iter()
             .cloned()
             .map(|mut workspot| {
-                let absolute_location = self.facing.rotate_f32_coords(workspot.location);
+                let absolute_location =
+                    self.facing.rotate_f32_coords(workspot.location) + self.location.as_vec2();
                 workspot.location = absolute_location;
                 workspot
             })
@@ -132,7 +133,20 @@ impl BuildingType {
     }
 
     fn air_pushers(&self) -> Vec<AirPusher<isize>> {
-        Vec::new()
+        match self {
+            BuildingType::HandCrankedVentilator { workspots } => vec![AirPusher {
+                x: 0,
+                y: 0,
+                direction: Facing::North,
+                amount: 0.25
+                    * (workspots
+                        .iter()
+                        .map(|ws| ws.occupation.is_working() as usize)
+                        .sum::<usize>() as f32
+                        / workspots.len() as f32)
+                        .powf(2.0),
+            }],
+        }
     }
 
     pub(crate) fn is_ventilator(&self) -> bool {
@@ -175,5 +189,13 @@ impl WorkSpotOccupation {
     #[must_use]
     pub(crate) fn is_open(&self) -> bool {
         matches!(self, Self::Open)
+    }
+
+    /// Returns `true` if the work spot occupation is [`Working`].
+    ///
+    /// [`Working`]: WorkSpotOccupation::Working
+    #[must_use]
+    pub fn is_working(&self) -> bool {
+        matches!(self, Self::Working(..))
     }
 }

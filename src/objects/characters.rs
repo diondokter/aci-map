@@ -4,6 +4,9 @@ use ordered_float::OrderedFloat;
 use super::{building::Building, ObjectId, ObjectProperties};
 use crate::{air::OxygenUser, Map};
 
+/// Walk speed in meters per second
+const CHARACTER_WALK_SPEED: f32 = 1.2;
+
 #[derive(Debug)]
 pub struct Character {
     pub location: Vec2,
@@ -84,7 +87,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         let mut ai_changes = Vec::new();
 
         'character_loop: for character in self.characters.iter() {
-            for possible_survive_goal in SURVIVE_GOAL_ORDER.iter() {
+            'survive_loop: for possible_survive_goal in SURVIVE_GOAL_ORDER.iter() {
                 if character.current_goal == CharacterGoal::Survive(*possible_survive_goal) {
                     // We already work on a goal of this importance
                     continue 'character_loop;
@@ -94,14 +97,14 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                     SurviveGoal::RunFromDanger => {
                         let danger_detected = false;
                         if !danger_detected {
-                            continue 'character_loop;
+                            continue 'survive_loop;
                         }
                         todo!()
                     }
                     SurviveGoal::PreventStarvation => {
                         let is_starving = false;
                         if !is_starving {
-                            continue 'character_loop;
+                            continue 'survive_loop;
                         }
                         todo!()
                     }
@@ -117,9 +120,12 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 match possible_work_goal {
                     WorkGoal::WorkAtVentilation => {
                         let closest_workspot = self
+                            // Get all buildings
                             .buildings
                             .iter()
+                            // Only keep the ventilators
                             .filter(|building| building.building_type.is_ventilator())
+                            // Get the open workspots of the ventilator and its index and the building id
                             .flat_map(|building| {
                                 building
                                     .workspots()
@@ -130,10 +136,12 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                                         (workspot_index, workspot, building.id())
                                     })
                             })
+                            // Calculate the path to the workspot and only keep the workspots that have a valid path
                             .filter_map(|workspot| {
                                 find_path(character.location, workspot.1.location)
                                     .map(|path| (workspot.0, workspot.2, path))
                             })
+                            // Take the workspot with the shortest path
                             .min_by_key(|(_, _, path)| OrderedFloat(path.total_length()));
 
                         if let Some((closest_workspot_index, building_id, path)) = closest_workspot
@@ -212,6 +220,69 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             character.current_goal = ai_change.new_goal;
             character.current_task = ai_change.new_task;
             character.current_path = ai_change.new_path;
+        }
+    }
+
+    pub(crate) fn perform_ai_tick(&mut self, delta_time: f32) {
+        for character in self.characters.iter_mut() {
+            let arrived_at_destination = if let Some(mut path) = character.current_path.take() {
+                log::trace!("Character is at {}", character.location);
+
+                let mut distance_to_go = CHARACTER_WALK_SPEED * delta_time;
+
+                while distance_to_go.min(path.total_length()) > f32::EPSILON {
+                    let walk_vector = path.points[1] - path.points[0];
+                    let walk_distance = walk_vector.length();
+                    let walk_direction = walk_vector / walk_distance;
+
+                    let distance_walked = walk_distance.min(distance_to_go);
+                    character.location += walk_direction * distance_walked;
+                    path.points[0] = character.location;
+
+                    distance_to_go -= distance_walked;
+
+                    if path.points[0].distance(path.points[1]) < f32::EPSILON {
+                        path.points.remove(0);
+                    }
+                }
+
+                if path.points.len() < 2 {
+                    character.location = path.points[0];
+                    true
+                } else {
+                    character.current_path = Some(path);
+                    false
+                }
+            } else {
+                false
+            };
+
+            // if arrived_at_destination {
+            //     match character.current_task {
+            //         CharacterTask::PanicRun { target_x, target_y } => todo!(),
+            //         CharacterTask::WorkAtSpot {
+            //             building,
+            //             workspot_index,
+            //         } => {
+            //             let Some(target_building) = self.get_object_mut(building) else {
+            //                 character.current_goal = CharacterGoal::Idle;
+            //                 character.current_task = CharacterTask::Idle;
+            //                 log::warn!("Could not get building {building:?} to work at workspot {workspot_index:?}");
+            //                 continue;
+            //             };
+
+            //             if target_building
+            //                 .start_work_at_workspot(workspot_index, character.id())
+            //                 .is_err()
+            //             {
+            //                 character.current_goal = CharacterGoal::Idle;
+            //                 character.current_task = CharacterTask::Idle;
+            //                 log::warn!("Could not work at the designated spot at building {building:?} workspot {workspot_index:?}");
+            //             }
+            //         }
+            //         CharacterTask::Idle => todo!(),
+            //     }
+            // }
         }
     }
 }

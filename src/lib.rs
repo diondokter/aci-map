@@ -82,7 +82,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             .map(|(x, y)| (x, y, &self.tiles[x][y]))
     }
 
-    pub fn simulate(&mut self, delta_time: f32) {
+    pub fn perform_simulation_tick(&mut self, delta_time: f32) {
         let mut air_diff = [[AirDiff::default(); HEIGHT]; WIDTH];
         let mut water_diff = [[0.0; HEIGHT]; WIDTH];
         let mut lava_diff = [[0.0; HEIGHT]; WIDTH];
@@ -95,13 +95,19 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             s.spawn(|_| ai_changes = self.calculate_ai_changes());
         });
 
-        log::debug!("AI changes at {}: {:?}", self.current_time, ai_changes);
+        if !ai_changes.is_empty() {
+            log::debug!("AI changes at {}: {:?}", self.current_time, ai_changes);
+        }
 
         self.apply_air_diff(air_diff, delta_time);
         self.apply_liquid_diff(water_diff, lava_diff);
         self.apply_ai_changes(ai_changes.into_iter());
 
         self.current_time += delta_time as f64;
+    }
+
+    pub fn perform_frame_tick(&mut self, delta_time: f32) {
+        self.perform_ai_tick(delta_time);
     }
 }
 
@@ -113,8 +119,6 @@ impl<const WIDTH: usize, const HEIGHT: usize> Default for Map<WIDTH, HEIGHT> {
 
 #[cfg(test)]
 mod tests {
-    use glam::{uvec2, vec2};
-
     use super::*;
     use crate::{
         air::{AirLeveler, AirPusher, OxygenUser},
@@ -125,7 +129,9 @@ mod tests {
         },
         tiles::TileType,
     };
+    use glam::{uvec2, vec2};
     use std::{fs::File, path::PathBuf};
+    use test_log::test;
 
     impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         fn collect_air_pressure_map(&self) -> [[f32; HEIGHT]; WIDTH] {
@@ -237,7 +243,7 @@ mod tests {
         assert!(neighbours.contains(&(6, 6)));
         assert_eq!(neighbours.len(), 8);
 
-        let neighbours = dbg!(Map::<10, 1>::neighbour_tile_coords(1, 0).collect::<Vec<_>>());
+        let neighbours = Map::<10, 1>::neighbour_tile_coords(1, 0).collect::<Vec<_>>();
 
         assert!(neighbours.contains(&(0, 0)));
         assert!(neighbours.contains(&(2, 0)));
@@ -261,9 +267,10 @@ mod tests {
 
     fn create_map_gif<const WIDTH: usize, const HEIGHT: usize>(
         map: &mut Map<WIDTH, HEIGHT>,
-        iterations: usize,
-        frame_every_nth: usize,
-        delta_time: f32,
+        total_frames: usize,
+        gif_frame_every_nth_frame: usize,
+        frame_rate: f32,
+        simulation_every_nth_frame: usize,
         gif_setups: &[GifSetup<WIDTH, HEIGHT>],
     ) {
         let mut encoders = gif_setups
@@ -277,8 +284,8 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        for i in 0..iterations {
-            if i % frame_every_nth == 0 {
+        for frame_index in 0..total_frames {
+            if frame_index % gif_frame_every_nth_frame == 0 {
                 for (setup, encoder) in gif_setups.iter().zip(encoders.iter_mut()) {
                     let data = (setup.data_getter)(&map);
 
@@ -316,12 +323,16 @@ mod tests {
                 }
             }
 
-            map.simulate(delta_time)
+            if frame_index % simulation_every_nth_frame == 0 {
+                map.perform_simulation_tick(frame_rate.recip() * simulation_every_nth_frame as f32);
+            }
+
+            map.perform_frame_tick(frame_rate.recip());
         }
     }
 
     #[test]
-    fn air_pressure() {
+    fn simulate() {
         std::thread::Builder::new()
             .name("TestThread".into())
             .stack_size(16 * 1024 * 1024)
@@ -386,16 +397,16 @@ mod tests {
                     vec![WorkGoal::WorkAtVentilation],
                 ));
                 map.push_object::<Building>(Building {
-                    location: uvec2(4, 3),
-                    facing: Facing::South,
+                    location: uvec2(3, 4),
+                    facing: Facing::East,
                     building_type: BuildingType::HandCrankedVentilator {
                         workspots: [
                             WorkSpot {
-                                location: vec2(-0.4, -0.2),
+                                location: vec2(0.2, 0.5),
                                 occupation: WorkSpotOccupation::Open,
                             },
                             WorkSpot {
-                                location: vec2(0.4, -0.2),
+                                location: vec2(0.8, 0.5),
                                 occupation: WorkSpotOccupation::Open,
                             },
                         ],
@@ -418,7 +429,7 @@ mod tests {
                         ..Default::default()
                     };
                 }
-                for i in 3..8 {
+                for i in 5..8 {
                     map.tiles[3][i] = Tile {
                         tile_type: TileType::Wall,
                         ..Default::default()
@@ -445,9 +456,10 @@ mod tests {
 
                 create_map_gif(
                     &mut map,
-                    100000,
-                    100,
-                    0.05,
+                    1000000,
+                    600,
+                    60.0,
+                    3,
                     &[
                         GifSetup {
                             path: "target/total_air_pressure.gif".into(),
