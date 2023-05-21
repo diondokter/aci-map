@@ -1,4 +1,4 @@
-use crate::{all_map_objects, Map};
+use crate::Map;
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     pub(crate) fn calculate_liquid_diff<L: Liquid>(
@@ -79,7 +79,11 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             }
         }
 
-        for liquid_leveler in all_map_objects!(self)
+        for liquid_leveler in self
+            .objects
+            .read()
+            .unwrap()
+            .get_all_objects()
             .map(|object| object.liquid_levelers())
             .flatten()
         {

@@ -86,7 +86,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     pub(crate) fn calculate_ai_changes(&self) -> Vec<AiChange> {
         let mut ai_changes = Vec::new();
 
-        'character_loop: for character in self.characters.iter() {
+        'character_loop: for character in self.objects().get_objects::<Character>() {
             'survive_loop: for possible_survive_goal in SURVIVE_GOAL_ORDER.iter() {
                 if character.current_goal == CharacterGoal::Survive(*possible_survive_goal) {
                     // We already work on a goal of this importance
@@ -119,10 +119,9 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
                 match possible_work_goal {
                     WorkGoal::WorkAtVentilation => {
-                        let closest_workspot = self
+                        let closest_workspot = self.objects()
                             // Get all buildings
-                            .buildings
-                            .iter()
+                            .get_objects::<Building>()
                             // Only keep the ventilators
                             .filter(|building| building.building_type.is_ventilator())
                             // Get the open workspots of the ventilator and its index and the building id
@@ -132,7 +131,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                                     .into_iter()
                                     .enumerate()
                                     .filter(|(_, workspot)| workspot.occupation.is_open())
-                                    .map(|(workspot_index, workspot)| {
+                                    .map(move |(workspot_index, workspot)| {
                                         (workspot_index, workspot, building.id())
                                     })
                             })
@@ -165,6 +164,8 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     }
 
     pub(crate) fn apply_ai_changes(&mut self, ai_changes: impl Iterator<Item = AiChange>) {
+        let objects = self.objects();
+
         for ai_change in ai_changes {
             // We need to make some changes to the environment like workspot claims
             match &ai_change.new_task {
@@ -173,7 +174,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                     building,
                     workspot_index,
                 } => {
-                    let Some(target_building) = self.get_object_mut(*building) else {
+                    let Some(mut target_building) = objects.get_object_mut(*building) else {
                         log::warn!("Could not get building {:?}", building);
                         continue;
                     };
@@ -189,7 +190,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 CharacterTask::Idle => todo!(),
             }
 
-            let Some(character) = self.get_object_mut(ai_change.character_id) else {
+            let Some(mut character) = objects.get_object_mut(ai_change.character_id) else {
                 log::warn!("Could not get character {:?}", ai_change.character_id);
                 continue;
             };
@@ -202,7 +203,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                     building,
                     workspot_index,
                 } => {
-                    if let Some(target_building) = self.get_object_mut(building) {
+                    if let Some(mut target_building) = objects.get_object_mut(building) {
                         target_building.release_workspot(workspot_index);
                     } else {
                         log::warn!("Could not get building {:?}", building);
@@ -211,12 +212,6 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 CharacterTask::Idle => {}
             }
 
-            // TODO: We need search for the character again because of lifetimes. I should find a solution for this
-            let Some(character) = self.get_object_mut(ai_change.character_id) else {
-                log::warn!("Could not get character {:?}", ai_change.character_id);
-                continue;
-            };
-
             character.current_goal = ai_change.new_goal;
             character.current_task = ai_change.new_task;
             character.current_path = ai_change.new_path;
@@ -224,7 +219,9 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     }
 
     pub(crate) fn perform_ai_tick(&mut self, delta_time: f32) {
-        for character in self.characters.iter_mut() {
+        let objects = self.objects.read().unwrap();
+
+        for mut character in objects.get_objects_mut::<Character>() {
             let arrived_at_destination = if let Some(mut path) = character.current_path.take() {
                 log::trace!("Character is at {}", character.location);
 
@@ -257,32 +254,32 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                 false
             };
 
-            // if arrived_at_destination {
-            //     match character.current_task {
-            //         CharacterTask::PanicRun { target_x, target_y } => todo!(),
-            //         CharacterTask::WorkAtSpot {
-            //             building,
-            //             workspot_index,
-            //         } => {
-            //             let Some(target_building) = self.get_object_mut(building) else {
-            //                 character.current_goal = CharacterGoal::Idle;
-            //                 character.current_task = CharacterTask::Idle;
-            //                 log::warn!("Could not get building {building:?} to work at workspot {workspot_index:?}");
-            //                 continue;
-            //             };
+            if arrived_at_destination {
+                match character.current_task {
+                    CharacterTask::PanicRun { target_x, target_y } => todo!(),
+                    CharacterTask::WorkAtSpot {
+                        building,
+                        workspot_index,
+                    } => {
+                        let Some(mut target_building) = objects.get_object_mut(building) else {
+                            character.current_goal = CharacterGoal::Idle;
+                            character.current_task = CharacterTask::Idle;
+                            log::warn!("Could not get building {building:?} to work at workspot {workspot_index:?}");
+                            continue;
+                        };
 
-            //             if target_building
-            //                 .start_work_at_workspot(workspot_index, character.id())
-            //                 .is_err()
-            //             {
-            //                 character.current_goal = CharacterGoal::Idle;
-            //                 character.current_task = CharacterTask::Idle;
-            //                 log::warn!("Could not work at the designated spot at building {building:?} workspot {workspot_index:?}");
-            //             }
-            //         }
-            //         CharacterTask::Idle => todo!(),
-            //     }
-            // }
+                        if target_building
+                            .start_work_at_workspot(workspot_index, character.id())
+                            .is_err()
+                        {
+                            character.current_goal = CharacterGoal::Idle;
+                            character.current_task = CharacterTask::Idle;
+                            log::warn!("Could not work at the designated spot at building {building:?} workspot {workspot_index:?}");
+                        }
+                    }
+                    CharacterTask::Idle => todo!(),
+                }
+            }
         }
     }
 }

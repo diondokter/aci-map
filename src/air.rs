@@ -1,7 +1,6 @@
 use std::ops::Add;
 
 use crate::{
-    all_map_objects,
     liquids::{AnyLiquid, LiquidData},
     Facing, Map,
 };
@@ -103,7 +102,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             air.fumes = air.fumes.add(air_diff[x][y].fumes).max(0.0);
         }
 
-        for map_object in all_map_objects!(self) {
+        for map_object in self.objects.read().unwrap().get_all_objects_mut() {
             for air_leveler in map_object.air_levelers() {
                 let Some(air) = self.tiles[air_leveler.x][air_leveler.y].tile_type.get_air_mut() else {
                     continue;

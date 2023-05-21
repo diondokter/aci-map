@@ -1,10 +1,13 @@
 #![feature(const_type_id)]
 
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
 use air::AirDiff;
 use liquids::{Lava, Water};
 use objects::characters::Character;
 use objects::environment_object::EnvironmentObject;
 use objects::{building::Building, Object, ObjectProperties};
+use objects::{ObjectId, Objects};
 use tiles::Tile;
 
 pub mod air;
@@ -18,25 +21,25 @@ pub use facing::Facing;
 #[derive(Debug)]
 pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     pub tiles: [[Tile; HEIGHT]; WIDTH],
-    next_object_id: usize,
+    objects: RwLock<Objects>,
     current_time: f64,
-
-    // These object arrays must be in order of object ID
-    environment_objects: Vec<Object<EnvironmentObject>>,
-    buildings: Vec<Object<Building>>,
-    characters: Vec<Object<Character>>,
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     pub const fn new_default() -> Self {
         Self {
             tiles: [[Tile::new_default(); HEIGHT]; WIDTH],
-            next_object_id: 0,
+            objects: RwLock::new(Objects::new()),
             current_time: 0.0,
-            environment_objects: Vec::new(),
-            buildings: Vec::new(),
-            characters: Vec::new(),
         }
+    }
+
+    pub fn objects(&self) -> RwLockReadGuard<'_, Objects> {
+        self.objects.read().unwrap()
+    }
+
+    pub fn objects_mut(&self) -> RwLockWriteGuard<'_, Objects> {
+        self.objects.write().unwrap()
     }
 
     #[inline(always)]
@@ -338,65 +341,74 @@ mod tests {
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
                 let mut map = Map::<20, 10>::new_default();
-                map.push_object::<EnvironmentObject>(AirLeveler {
-                    x: 0,
-                    y: 9,
-                    nitrogen: 0.79 / 2.0,
-                    oxygen: 0.21 / 2.0,
-                    fumes: 0.0,
-                });
-                map.push_object::<EnvironmentObject>(AirLeveler {
-                    x: 9,
-                    y: 0,
-                    nitrogen: 0.79,
-                    oxygen: 0.21,
-                    fumes: 0.0,
-                });
-                map.push_object::<EnvironmentObject>(OxygenUser {
-                    x: 5,
-                    y: 5,
-                    change_per_sec: 0.0001,
-                });
-                map.push_object::<EnvironmentObject>(OxygenUser {
-                    x: 18,
-                    y: 2,
-                    change_per_sec: 0.0001,
-                });
+                map.objects_mut()
+                    .push_object::<EnvironmentObject>(AirLeveler {
+                        x: 0,
+                        y: 9,
+                        nitrogen: 0.79 / 2.0,
+                        oxygen: 0.21 / 2.0,
+                        fumes: 0.0,
+                    });
+                map.objects_mut()
+                    .push_object::<EnvironmentObject>(AirLeveler {
+                        x: 9,
+                        y: 0,
+                        nitrogen: 0.79,
+                        oxygen: 0.21,
+                        fumes: 0.0,
+                    });
+                map.objects_mut()
+                    .push_object::<EnvironmentObject>(OxygenUser {
+                        x: 5,
+                        y: 5,
+                        change_per_sec: 0.0001,
+                    });
+                map.objects_mut()
+                    .push_object::<EnvironmentObject>(OxygenUser {
+                        x: 18,
+                        y: 2,
+                        change_per_sec: 0.0001,
+                    });
 
-                map.push_object::<EnvironmentObject>(LiquidLeveler {
-                    x: 19,
-                    y: 0,
-                    target: LiquidData::Water { level: 1.0 },
-                });
-                map.push_object::<EnvironmentObject>(LiquidLeveler {
-                    x: 19,
-                    y: 9,
-                    target: LiquidData::Lava { level: 1.1 },
-                });
-                map.push_object::<EnvironmentObject>(AirPusher {
-                    x: 18,
-                    y: 4,
-                    direction: Facing::South,
-                    amount: 2.0,
-                });
-                map.push_object::<EnvironmentObject>(AirPusher {
-                    x: 16,
-                    y: 8,
-                    direction: Facing::West,
-                    amount: 2.0,
-                });
-                map.push_object::<EnvironmentObject>(AirPusher {
-                    x: 10,
-                    y: 8,
-                    direction: Facing::West,
-                    amount: 2.0,
-                });
-                map.push_object::<Character>(Character::new(
+                map.objects_mut()
+                    .push_object::<EnvironmentObject>(LiquidLeveler {
+                        x: 19,
+                        y: 0,
+                        target: LiquidData::Water { level: 1.0 },
+                    });
+                map.objects_mut()
+                    .push_object::<EnvironmentObject>(LiquidLeveler {
+                        x: 19,
+                        y: 9,
+                        target: LiquidData::Lava { level: 1.1 },
+                    });
+                map.objects_mut()
+                    .push_object::<EnvironmentObject>(AirPusher {
+                        x: 18,
+                        y: 4,
+                        direction: Facing::South,
+                        amount: 2.0,
+                    });
+                map.objects_mut()
+                    .push_object::<EnvironmentObject>(AirPusher {
+                        x: 16,
+                        y: 8,
+                        direction: Facing::West,
+                        amount: 2.0,
+                    });
+                map.objects_mut()
+                    .push_object::<EnvironmentObject>(AirPusher {
+                        x: 10,
+                        y: 8,
+                        direction: Facing::West,
+                        amount: 2.0,
+                    });
+                map.objects_mut().push_object::<Character>(Character::new(
                     vec2(0.5, 0.5),
                     1.0,
                     vec![WorkGoal::WorkAtVentilation],
                 ));
-                map.push_object::<Building>(Building {
+                map.objects_mut().push_object::<Building>(Building {
                     location: uvec2(3, 4),
                     facing: Facing::East,
                     building_type: BuildingType::HandCrankedVentilator {

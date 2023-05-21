@@ -65,7 +65,7 @@ impl<T: ObjectProperties> ObjectId<T> {
 }
 
 impl ObjectId<()> {
-    pub(crate) fn cast<T>(self) -> ObjectId<T> {
+    pub(crate) fn cast<T: ObjectProperties>(self) -> ObjectId<T> {
         ObjectId {
             id: self.id,
             _phantom: PhantomData,
