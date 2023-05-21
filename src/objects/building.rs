@@ -138,7 +138,7 @@ impl BuildingType {
                 x: 0,
                 y: 0,
                 direction: Facing::North,
-                amount: 0.25
+                amount: 0.5
                     * (workspots
                         .iter()
                         .map(|ws| ws.occupation.is_working() as usize)
