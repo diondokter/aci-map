@@ -124,8 +124,8 @@ mod tests {
         air::{AirLeveler, AirPusher, OxygenUser},
         liquids::{AnyLiquid, Lava, Liquid, LiquidData, LiquidLeveler, Water},
         objects::{
-            building::{BuildingType, WorkSpot, WorkSpotOccupation},
-            characters::WorkGoal,
+            building::{BuildingType, WorkSpot, WorkSpotOccupation, Building},
+            characters::{WorkGoal, Character}, environment_object::EnvironmentObject,
         },
         tiles::TileType,
     };
