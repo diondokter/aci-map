@@ -7,6 +7,7 @@ use std::{
     any::{type_name, TypeId},
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 pub mod building;
@@ -55,6 +56,8 @@ impl Objects {
         let object_id = object.id();
         self.get_vec_of_type_mut().push(object);
 
+        self.object_sync.push_object(object_id.cast());
+
         object_id
     }
 
@@ -67,6 +70,8 @@ impl Objects {
             .unwrap();
 
         object_vec.remove(index);
+
+        self.object_sync.remove_object(id.cast());
     }
 
     pub fn get_object<T: ObjectProperties>(&self, id: ObjectId<T>) -> Option<LockedObject<'_, T>> {
@@ -154,27 +159,97 @@ impl Objects {
 }
 
 #[derive(Debug)]
-pub(crate) struct ObjectSync {}
+pub(crate) struct ObjectSync {
+    states: Vec<(ObjectId<()>, SyncState)>,
+}
 
 impl ObjectSync {
     pub const fn new() -> Self {
-        Self {}
+        Self { states: Vec::new() }
     }
 
-    fn take_read_access<T>(&self, object_id: ObjectId<T>) {
-        todo!()
+    fn find_index(&self, object_id: ObjectId<()>) -> Result<usize, usize> {
+        self.states.binary_search_by_key(&object_id, |(id, _)| *id)
     }
 
-    fn free_read_access<T>(&self, object_id: ObjectId<T>) {
-        todo!()
+    pub fn push_object(&mut self, object_id: ObjectId<()>) {
+        let insert_index = self.find_index(object_id).unwrap_err();
+        self.states
+            .insert(insert_index, (object_id, SyncState::new()));
     }
 
-    fn take_write_access<T>(&self, object_id: ObjectId<T>) {
-        todo!()
+    pub fn remove_object(&mut self, object_id: ObjectId<()>) {
+        let remove_index = self.find_index(object_id).unwrap();
+        self.states.remove(remove_index);
     }
 
-    fn free_write_access<T>(&self, object_id: ObjectId<T>) {
-        todo!()
+    pub fn take_read_access(&self, object_id: ObjectId<()>) {
+        let index = self.find_index(object_id).unwrap();
+        self.states[index].1.spin_take_read();
+    }
+
+    // Safety: Must have taken first
+    pub unsafe fn free_read_access(&self, object_id: ObjectId<()>) {
+        let index = self.find_index(object_id).unwrap();
+        self.states[index].1.release_read();
+    }
+
+    pub fn take_write_access(&self, object_id: ObjectId<()>) {
+        let index = self.find_index(object_id).unwrap();
+        self.states[index].1.spin_take_write();
+    }
+
+    // Safety: Must have taken first
+    pub unsafe fn free_write_access(&self, object_id: ObjectId<()>) {
+        let index = self.find_index(object_id).unwrap();
+        self.states[index].1.release_write();
+    }
+}
+
+#[derive(Debug)]
+struct SyncState(AtomicU32);
+
+impl SyncState {
+    pub const fn new() -> Self {
+        Self(AtomicU32::new(0))
+    }
+
+    const WRITER: u32 = 1;
+    const READER: u32 = 2;
+
+    pub fn spin_take_read(&self) {
+        loop {
+            let previous_value = self.0.fetch_add(Self::READER, Ordering::AcqRel);
+            if previous_value & Self::WRITER > 0 {
+                // A writer is active. We need to release again
+                self.0.fetch_sub(Self::READER, Ordering::AcqRel);
+                std::hint::spin_loop();
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn release_read(&self) {
+        self.0.fetch_sub(Self::READER, Ordering::AcqRel);
+    }
+
+    pub fn spin_take_write(&self) {
+        loop {
+            if self
+                .0
+                .compare_exchange_weak(0, Self::WRITER, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                std::hint::spin_loop();
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn release_write(&self) {
+        self.0.fetch_sub(Self::WRITER, Ordering::AcqRel);
     }
 }
 
@@ -202,7 +277,7 @@ pub struct LockedObject<'o, T: ObjectProperties + ?Sized> {
 
 impl<'o, T: ObjectProperties> LockedObject<'o, T> {
     pub(crate) fn new(object: &'o Object<T>, object_sync: &'o ObjectSync) -> Self {
-        object_sync.take_read_access(object.id());
+        object_sync.take_read_access(object.id().cast());
         Self {
             id: object.id().cast(),
             object: unsafe { &*object.object.get() },
@@ -220,7 +295,7 @@ impl<'o> LockedObject<'o, dyn ObjectProperties> {
         object: &'o Object<T>,
         object_sync: &'o ObjectSync,
     ) -> Self {
-        object_sync.take_read_access(object.id());
+        object_sync.take_read_access(object.id().cast());
         Self {
             id: object.id().cast(),
             object: unsafe { &*object.object.get() },
@@ -239,7 +314,9 @@ impl<'o, T: ObjectProperties + ?Sized> Deref for LockedObject<'o, T> {
 
 impl<'o, T: ObjectProperties + ?Sized> Drop for LockedObject<'o, T> {
     fn drop(&mut self) {
-        self.object_sync.free_read_access(self.id);
+        unsafe {
+            self.object_sync.free_read_access(self.id);
+        }
     }
 }
 
@@ -252,7 +329,7 @@ pub struct LockedObjectMut<'o, T: ObjectProperties + ?Sized> {
 
 impl<'o, T: ObjectProperties> LockedObjectMut<'o, T> {
     pub(crate) fn new(object: &'o Object<T>, object_sync: &'o ObjectSync) -> Self {
-        object_sync.take_write_access(object.id());
+        object_sync.take_write_access(object.id().cast());
         Self {
             id: object.id().cast(),
             object: unsafe { &mut *object.object.get() },
@@ -270,7 +347,7 @@ impl<'o> LockedObjectMut<'o, dyn ObjectProperties> {
         object: &'o Object<T>,
         object_sync: &'o ObjectSync,
     ) -> Self {
-        object_sync.take_write_access(object.id());
+        object_sync.take_write_access(object.id().cast());
         Self {
             id: object.id().cast(),
             object: unsafe { &mut *object.object.get() },
@@ -295,7 +372,9 @@ impl<'o, T: ObjectProperties + ?Sized> DerefMut for LockedObjectMut<'o, T> {
 
 impl<'o, T: ObjectProperties + ?Sized> Drop for LockedObjectMut<'o, T> {
     fn drop(&mut self) {
-        self.object_sync.free_write_access(self.id);
+        unsafe {
+            self.object_sync.free_write_access(self.id);
+        }
     }
 }
 
