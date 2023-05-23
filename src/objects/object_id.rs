@@ -2,7 +2,7 @@ use super::ObjectProperties;
 use std::{any::type_name, marker::PhantomData};
 
 pub struct ObjectId<T> {
-    id: usize,
+    id: u32,
     _phantom: PhantomData<T>,
 }
 
@@ -47,7 +47,7 @@ impl<T> PartialEq for ObjectId<T> {
 impl<T> Eq for ObjectId<T> {}
 
 impl<T> ObjectId<T> {
-    pub(crate) fn new(id: usize) -> Self {
+    pub(crate) fn new(id: u32) -> Self {
         Self {
             id,
             _phantom: PhantomData,

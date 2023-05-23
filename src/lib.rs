@@ -4,10 +4,7 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use air::AirDiff;
 use liquids::{Lava, Water};
-use objects::characters::Character;
-use objects::environment_object::EnvironmentObject;
-use objects::{building::Building, Object, ObjectProperties};
-use objects::{ObjectId, Objects};
+use objects::Objects;
 use tiles::Tile;
 
 pub mod air;

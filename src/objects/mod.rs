@@ -22,7 +22,7 @@ const CHARACTER_OBJECT: TypeId = TypeId::of::<Character>();
 
 #[derive(Debug)]
 pub struct Objects {
-    next_object_id: usize,
+    next_object_id: u32,
     object_sync: ObjectSync,
 
     // These object arrays must be in order of object ID
@@ -180,7 +180,7 @@ impl ObjectSync {
 
 #[derive(Debug)]
 pub struct Object<T: ObjectProperties> {
-    id: usize,
+    id: u32,
     object: UnsafeCell<T>,
 }
 
@@ -216,7 +216,10 @@ impl<'o, T: ObjectProperties> LockedObject<'o, T> {
 }
 
 impl<'o> LockedObject<'o, dyn ObjectProperties> {
-    pub(crate) fn new_dyn<T: ObjectProperties>(object: &'o Object<T>, object_sync: &'o ObjectSync) -> Self {
+    pub(crate) fn new_dyn<T: ObjectProperties>(
+        object: &'o Object<T>,
+        object_sync: &'o ObjectSync,
+    ) -> Self {
         object_sync.take_read_access(object.id());
         Self {
             id: object.id().cast(),
@@ -263,7 +266,10 @@ impl<'o, T: ObjectProperties> LockedObjectMut<'o, T> {
 }
 
 impl<'o> LockedObjectMut<'o, dyn ObjectProperties> {
-    pub(crate) fn new_dyn<T: ObjectProperties>(object: &'o Object<T>, object_sync: &'o ObjectSync) -> Self {
+    pub(crate) fn new_dyn<T: ObjectProperties>(
+        object: &'o Object<T>,
+        object_sync: &'o ObjectSync,
+    ) -> Self {
         object_sync.take_write_access(object.id());
         Self {
             id: object.id().cast(),

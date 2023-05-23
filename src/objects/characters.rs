@@ -119,7 +119,8 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
                 match possible_work_goal {
                     WorkGoal::WorkAtVentilation => {
-                        let closest_workspot = self.objects()
+                        let closest_workspot = self
+                            .objects()
                             // Get all buildings
                             .get_objects::<Building>()
                             // Only keep the ventilators

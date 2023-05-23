@@ -13,36 +13,41 @@ fn simulate_map<const WIDTH: usize, const HEIGHT: usize>(map: &mut Map<WIDTH, HE
 fn criterion_benchmark(c: &mut Criterion) {
     let mut map: Map<500, 500> = Map::new_default();
 
-    map.objects_mut().push_object::<EnvironmentObject>(AirLeveler {
-        x: 0,
-        y: 0,
-        nitrogen: 0.79,
-        oxygen: 0.00,
-        fumes: 0.0,
-    });
-    map.objects_mut().push_object::<EnvironmentObject>(AirLeveler {
-        x: 9,
-        y: 9,
-        nitrogen: 0.79,
-        oxygen: 0.21,
-        fumes: 0.00,
-    });
-    map.objects_mut().push_object::<EnvironmentObject>(OxygenUser {
-        x: 50,
-        y: 50,
-        change_per_sec: 0.001,
-    });
+    map.objects_mut()
+        .push_object::<EnvironmentObject>(AirLeveler {
+            x: 0,
+            y: 0,
+            nitrogen: 0.79,
+            oxygen: 0.00,
+            fumes: 0.0,
+        });
+    map.objects_mut()
+        .push_object::<EnvironmentObject>(AirLeveler {
+            x: 9,
+            y: 9,
+            nitrogen: 0.79,
+            oxygen: 0.21,
+            fumes: 0.00,
+        });
+    map.objects_mut()
+        .push_object::<EnvironmentObject>(OxygenUser {
+            x: 50,
+            y: 50,
+            change_per_sec: 0.001,
+        });
 
-    map.objects_mut().push_object::<EnvironmentObject>(LiquidLeveler {
-        x: 99,
-        y: 0,
-        target: LiquidData::Water { level: 1.0 },
-    });
-    map.objects_mut().push_object::<EnvironmentObject>(LiquidLeveler {
-        x: 99,
-        y: 9,
-        target: LiquidData::Lava { level: 1.0 },
-    });
+    map.objects_mut()
+        .push_object::<EnvironmentObject>(LiquidLeveler {
+            x: 99,
+            y: 0,
+            target: LiquidData::Water { level: 1.0 },
+        });
+    map.objects_mut()
+        .push_object::<EnvironmentObject>(LiquidLeveler {
+            x: 99,
+            y: 9,
+            target: LiquidData::Lava { level: 1.0 },
+        });
 
     for (x, y) in map
         .all_tile_coords()
