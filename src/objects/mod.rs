@@ -392,3 +392,64 @@ pub trait ObjectProperties: 'static {
         Vec::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Mutex, time::Duration};
+
+    use super::*;
+
+    #[test]
+    fn spinlock() {
+        let state = SyncState::new();
+
+        enum Event {
+            WriteStart,
+            WriteEnd,
+            ReadStart,
+            ReadEnd,
+        }
+
+        let events = Mutex::new(Vec::new());
+
+        std::thread::scope(|s| {
+            for i in 0..500 {
+                if i % 10 == 0 {
+                    s.spawn(|| {
+                        state.spin_take_write();
+                        events.lock().unwrap().push(Event::WriteStart);
+                        std::thread::sleep(Duration::from_micros(100));
+                        events.lock().unwrap().push(Event::WriteEnd);
+                        state.release_write();
+                    });
+                } else {
+                    s.spawn(|| {
+                        state.spin_take_read();
+                        events.lock().unwrap().push(Event::ReadStart);
+                        std::thread::sleep(Duration::from_micros(50));
+                        events.lock().unwrap().push(Event::ReadEnd);
+                        state.release_read();
+                    });
+                }
+            }
+        });
+
+        let mut reads_active = 0;
+        let mut writes_active = 0;
+
+        for event in events.into_inner().unwrap().into_iter() {
+            match event {
+                Event::WriteStart => writes_active += 1,
+                Event::WriteEnd => writes_active -= 1,
+                Event::ReadStart => reads_active += 1,
+                Event::ReadEnd => reads_active -= 1,
+            }
+
+            println!("{reads_active}, {writes_active}");
+
+            assert!(
+                reads_active >= 0 && writes_active == 0 || reads_active == 0 && writes_active == 1
+            );
+        }
+    }
+}
