@@ -2,7 +2,11 @@ use glam::Vec2;
 use ordered_float::OrderedFloat;
 
 use super::{building::Building, ObjectId, ObjectProperties};
-use crate::{air::OxygenUser, Map};
+use crate::{
+    air::OxygenUser,
+    liquids::{AnyLiquid, Lava},
+    Map,
+};
 
 /// Walk speed in meters per second
 const CHARACTER_WALK_SPEED: f32 = 1.2;
@@ -83,6 +87,8 @@ pub(crate) struct AiChange {
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
+    const LIQUID_DROWN_HEIGHT: f32 = 2.0;
+
     pub(crate) fn calculate_ai_changes(&self) -> Vec<AiChange> {
         let mut ai_changes = Vec::new();
 
@@ -138,7 +144,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
                             })
                             // Calculate the path to the workspot and only keep the workspots that have a valid path
                             .filter_map(|workspot| {
-                                find_path(character.location, workspot.1.location)
+                                self.find_path(character.location, workspot.1.location, true, true)
                                     .map(|path| (workspot.0, workspot.2, path))
                             })
                             // Take the workspot with the shortest path
@@ -170,7 +176,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         for ai_change in ai_changes {
             // We need to make some changes to the environment like workspot claims
             match &ai_change.new_task {
-                CharacterTask::PanicRun { target_x, target_y } => todo!(),
+                CharacterTask::PanicRun { .. } => todo!(),
                 CharacterTask::WorkAtSpot {
                     building,
                     workspot_index,
@@ -199,7 +205,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             // We need to book off anything the character will stop doing like old workspots
 
             match character.current_task.clone() {
-                CharacterTask::PanicRun { target_x, target_y } => todo!(),
+                CharacterTask::PanicRun { .. } => todo!(),
                 CharacterTask::WorkAtSpot {
                     building,
                     workspot_index,
@@ -224,8 +230,6 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
         for mut character in objects.get_objects_mut::<Character>() {
             let arrived_at_destination = if let Some(mut path) = character.current_path.take() {
-                log::trace!("Character is at {}", character.location);
-
                 let mut distance_to_go = CHARACTER_WALK_SPEED * delta_time;
 
                 while distance_to_go.min(path.total_length()) > f32::EPSILON {
@@ -257,7 +261,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
             if arrived_at_destination {
                 match character.current_task {
-                    CharacterTask::PanicRun { target_x, target_y } => todo!(),
+                    CharacterTask::PanicRun { .. } => todo!(),
                     CharacterTask::WorkAtSpot {
                         building,
                         workspot_index,
@@ -283,13 +287,53 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             }
         }
     }
-}
 
-fn find_path(from: Vec2, to: Vec2) -> Option<Path> {
-    // TODO: Actual pathfinding
-    Some(Path {
-        points: vec![from, to],
-    })
+    fn find_path(
+        &self,
+        from: Vec2,
+        to: Vec2,
+        avoid_lava: bool,
+        avoid_drowning: bool,
+    ) -> Option<Path> {
+        // First make sure the from and to vectors are valid open positions
+        self.position_penalty(from, avoid_lava, avoid_drowning)?;
+        self.position_penalty(to, avoid_lava, avoid_drowning)?;
+
+        // TODO: Actual pathfinding
+        Some(Path {
+            points: vec![from, to],
+        })
+    }
+
+    /// - None if the position cannot be walked at all
+    /// - Some with number if walkable. Lower numbers are preferential.
+    fn position_penalty(
+        &self,
+        pos: Vec2,
+        avoid_lava: bool,
+        avoid_drowning: bool,
+    ) -> Option<OrderedFloat<f32>> {
+        let tile_coord = pos.as_uvec2();
+        let tile = &self.tiles[tile_coord.x as usize][tile_coord.y as usize];
+
+        // Tile must have a ground, may have a little bit of water and optionally a bit of lava (so we can pathfind to escape it)
+        let liquids = tile.tile_type.get_liquids()?;
+
+        let liquid_level = liquids.get_level::<AnyLiquid>();
+        let will_drown = liquid_level > Self::LIQUID_DROWN_HEIGHT;
+        let is_lava = liquids.get_level::<Lava>() > 0.001;
+
+        if will_drown && avoid_drowning || is_lava && avoid_lava {
+            return None;
+        }
+
+        Some(
+            (liquid_level
+                * if is_lava { 100000.0 } else { 1.0 }
+                * if will_drown { 100000.0 } else { 1.0 })
+            .into(),
+        )
+    }
 }
 
 #[derive(Debug)]
