@@ -11,6 +11,7 @@ num_enum = "0.6.1"
 glam = "0.24.0"
 ordered-float = "3.7.0"
 log = "0.4.17"
+pathfinding = "4.3.0"
 
 [dev-dependencies]
 gif = "0.12.0"

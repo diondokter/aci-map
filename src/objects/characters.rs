@@ -1,4 +1,4 @@
-use glam::Vec2;
+use glam::{vec2, Vec2};
 use ordered_float::OrderedFloat;
 
 use super::{building::Building, ObjectId, ObjectProperties};
@@ -68,8 +68,7 @@ pub(crate) enum CharacterGoal {
 #[derive(Debug, Clone)]
 pub(crate) enum CharacterTask {
     PanicRun {
-        target_x: f32,
-        target_y: f32,
+        target: Vec2,
     },
     WorkAtSpot {
         building: ObjectId<Building>,
@@ -295,14 +294,60 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         avoid_lava: bool,
         avoid_drowning: bool,
     ) -> Option<Path> {
+        const NODES_PER_METER: u32 = 8;
+
         // First make sure the from and to vectors are valid open positions
         self.position_penalty(from, avoid_lava, avoid_drowning)?;
         self.position_penalty(to, avoid_lava, avoid_drowning)?;
 
-        // TODO: Actual pathfinding
-        Some(Path {
-            points: vec![from, to],
-        })
+        let node_snapped_from = (from * NODES_PER_METER as f32).round() / NODES_PER_METER as f32
+            + vec2(1.0 / NODES_PER_METER as f32, 1.0 / NODES_PER_METER as f32) / 2.0;
+
+        let (path, _) = pathfinding::directed::astar::astar(
+            &(
+                OrderedFloat::from(node_snapped_from.x),
+                OrderedFloat::from(node_snapped_from.y),
+            ),
+            |pos| {
+                let pos = vec2(pos.0 .0, pos.1 .0);
+                [
+                    pos + vec2(1.0, 1.0) / NODES_PER_METER as f32,
+                    pos + vec2(0.0, 1.0) / NODES_PER_METER as f32,
+                    pos + vec2(-1.0, 1.0) / NODES_PER_METER as f32,
+                    pos + vec2(1.0, 0.0) / NODES_PER_METER as f32,
+                    pos + vec2(-1.0, 0.0) / NODES_PER_METER as f32,
+                    pos + vec2(1.0, -1.0) / NODES_PER_METER as f32,
+                    pos + vec2(0.0, -1.0) / NODES_PER_METER as f32,
+                    pos + vec2(-1.0, -1.0) / NODES_PER_METER as f32,
+                ]
+                .into_iter()
+                .filter_map(move |new_pos| {
+                    // TODO: Add obstacle avoidance, we now only check for walls
+                    self.position_penalty(new_pos, avoid_lava, avoid_drowning)
+                        .map(|penalty| {
+                            (
+                                (OrderedFloat::from(new_pos.x), OrderedFloat::from(new_pos.y)),
+                                penalty + pos.distance(new_pos),
+                            )
+                        })
+                })
+            },
+            |pos| {
+                let pos = vec2(pos.0 .0, pos.1 .0);
+                pos.distance_squared(to).into()
+            },
+            |pos| {
+                let pos = vec2(pos.0 .0, pos.1 .0);
+                pos.distance_squared(to) <= 1.0 / (NODES_PER_METER as f32).powi(2)
+            },
+        )?;
+
+        let mut points: Vec<_> = path.into_iter().map(|(x, y)| vec2(x.0, y.0)).collect();
+        let num_points = points.len();
+        points[0] = from;
+        points[num_points - 1] = to;
+
+        Some(Path { points })
     }
 
     /// - None if the position cannot be walked at all
