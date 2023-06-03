@@ -1,10 +1,7 @@
-#![feature(const_type_id)]
-
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-
 use air::AirDiff;
 use liquids::{Lava, Water};
 use objects::Objects;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tiles::Tile;
 
 pub mod air;

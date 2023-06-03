@@ -17,10 +17,6 @@ mod object_id;
 
 pub use object_id::ObjectId;
 
-const ENVIRONMENT_OBJECT: TypeId = TypeId::of::<EnvironmentObject>();
-const BUILDING_OBJECT: TypeId = TypeId::of::<Building>();
-const CHARACTER_OBJECT: TypeId = TypeId::of::<Character>();
-
 #[derive(Debug)]
 pub struct Objects {
     next_object_id: u32,
@@ -141,18 +137,26 @@ impl Objects {
 
     fn get_vec_of_type<T: ObjectProperties>(&self) -> &Vec<Object<T>> {
         match TypeId::of::<T>() {
-            ENVIRONMENT_OBJECT => unsafe { std::mem::transmute(&self.environment_objects) },
-            BUILDING_OBJECT => unsafe { std::mem::transmute(&self.buildings) },
-            CHARACTER_OBJECT => unsafe { std::mem::transmute(&self.characters) },
+            o if o == TypeId::of::<EnvironmentObject>() => unsafe {
+                std::mem::transmute(&self.environment_objects)
+            },
+            o if o == TypeId::of::<Building>() => unsafe { std::mem::transmute(&self.buildings) },
+            o if o == TypeId::of::<Character>() => unsafe { std::mem::transmute(&self.characters) },
             _ => unreachable!(),
         }
     }
 
     fn get_vec_of_type_mut<T: ObjectProperties>(&mut self) -> &mut Vec<Object<T>> {
         match TypeId::of::<T>() {
-            ENVIRONMENT_OBJECT => unsafe { std::mem::transmute(&mut self.environment_objects) },
-            BUILDING_OBJECT => unsafe { std::mem::transmute(&mut self.buildings) },
-            CHARACTER_OBJECT => unsafe { std::mem::transmute(&mut self.characters) },
+            o if o == TypeId::of::<EnvironmentObject>() => unsafe {
+                std::mem::transmute(&mut self.environment_objects)
+            },
+            o if o == TypeId::of::<Building>() => unsafe {
+                std::mem::transmute(&mut self.buildings)
+            },
+            o if o == TypeId::of::<Character>() => unsafe {
+                std::mem::transmute(&mut self.characters)
+            },
             _ => unreachable!("{} is not covered", type_name::<T>()),
         }
     }
