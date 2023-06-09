@@ -19,6 +19,7 @@ pub struct Map<const WIDTH: usize, const HEIGHT: usize> {
     current_time: f64,
 }
 
+#[traitify::traitify(MapObject, dyn = [WIDTH, HEIGHT])]
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     pub const fn new_default() -> Self {
         Self {
@@ -36,11 +37,21 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         self.objects.write().unwrap()
     }
 
+    pub fn tile(&self, x: usize, y: usize) -> &Tile {
+        &self.tiles[x][y]
+    }
+
+    pub fn width(&self) -> usize {
+        WIDTH
+    }
+
+    pub fn height(&self) -> usize {
+        HEIGHT
+    }
+
     #[inline(always)]
-    pub fn all_tile_coords(&self) -> impl Iterator<Item = (usize, usize)> {
-        (0..WIDTH)
-            .map(|x| (0..HEIGHT).map(move |y| (x, y)))
-            .flatten()
+    pub fn all_tile_coords(&self) -> TileCoordIter {
+        TileCoordIter::new(WIDTH, HEIGHT)
     }
 
     fn neighbour_tile_coords(
@@ -114,6 +125,43 @@ impl<const WIDTH: usize, const HEIGHT: usize> Default for Map<WIDTH, HEIGHT> {
     }
 }
 
+pub struct TileCoordIter {
+    current_width: usize,
+    current_height: usize,
+    width: usize,
+    height: usize,
+}
+
+impl TileCoordIter {
+    fn new(width: usize, height: usize) -> Self {
+        Self {
+            current_width: 0,
+            width,
+            current_height: 0,
+            height,
+        }
+    }
+}
+
+impl Iterator for TileCoordIter {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_height == self.height {
+            self.current_height = 0;
+            self.current_width += 1;
+        }
+
+        if self.current_width == self.width {
+            return None;
+        }
+        
+        let return_value = Some((self.current_width, self.current_height));
+        self.current_height += 1;
+        return_value
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +178,12 @@ mod tests {
     use glam::{uvec2, vec2};
     use std::{fs::File, path::PathBuf};
     use test_log::test;
+
+    #[test]
+    fn tile_iter() {
+        let iter = TileCoordIter::new(2, 3).collect::<Vec<_>>();
+        assert_eq!(iter, &[(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]);
+    }
 
     impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         fn collect_air_pressure_map(&self) -> [[f32; HEIGHT]; WIDTH] {

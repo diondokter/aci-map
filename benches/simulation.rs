@@ -2,11 +2,11 @@ use aci_map::{
     air::{AirLeveler, OxygenUser},
     liquids::{LiquidData, LiquidLeveler},
     objects::environment_object::EnvironmentObject,
-    Map,
+    Map, MapObject,
 };
 use criterion::{black_box, criterion_group, Criterion};
 
-fn simulate_map<const WIDTH: usize, const HEIGHT: usize>(map: &mut Map<WIDTH, HEIGHT>) {
+fn simulate_map(map: &mut dyn MapObject) {
     map.perform_simulation_tick(0.05);
 }
 

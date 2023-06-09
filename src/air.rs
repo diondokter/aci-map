@@ -102,7 +102,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             air.fumes = air.fumes.add(air_diff[x][y].fumes).max(0.0);
         }
 
-        for map_object in self.objects.read().unwrap().get_all_objects_mut() {
+        for map_object in self.objects.read().unwrap().get_all_objects() {
             for air_leveler in map_object.air_levelers() {
                 let Some(air) = self.tiles[air_leveler.x][air_leveler.y].tile_type.get_air_mut() else {
                     continue;
@@ -184,18 +184,22 @@ impl AirData {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn nitrogen_fraction(&self) -> f32 {
         self.nitrogen / (self.nitrogen + self.oxygen + self.fumes)
     }
 
+    #[inline(always)]
     pub(crate) fn oxygen_fraction(&self) -> f32 {
         self.oxygen / (self.nitrogen + self.oxygen + self.fumes)
     }
 
+    #[inline(always)]
     pub(crate) fn fumes_fraction(&self) -> f32 {
         self.fumes / (self.nitrogen + self.oxygen + self.fumes)
     }
 
+    #[inline(always)]
     pub(crate) fn air_pressure(&self, liquid_level: f32) -> f32 {
         (self.nitrogen + self.oxygen + self.fumes)
             / (1.0 - liquid_level / LiquidData::MAX_LEVEL).max(0.001)
