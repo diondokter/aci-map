@@ -1,4 +1,4 @@
-use glam::{vec2, UVec2, Vec2};
+use glam::{UVec2, Vec2};
 
 use super::{characters::Character, ObjectId, ObjectProperties};
 use crate::{

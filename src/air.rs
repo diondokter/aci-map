@@ -1,9 +1,6 @@
 use std::ops::Add;
 
-use crate::{
-    liquids::{AnyLiquid, LiquidData},
-    Facing, Map,
-};
+use crate::{liquids::AnyLiquid, tiles::Tile, Facing, Map};
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     pub(crate) fn calculate_air_diff(&self, delta_time: f32) -> [[AirDiff; HEIGHT]; WIDTH] {
@@ -202,7 +199,7 @@ impl AirData {
     #[inline(always)]
     pub(crate) fn air_pressure(&self, liquid_level: f32) -> f32 {
         (self.nitrogen + self.oxygen + self.fumes)
-            / (1.0 - liquid_level / LiquidData::MAX_LEVEL).max(0.001)
+            / (1.0 - liquid_level / Tile::TUNNEL_HEIGHT).max(0.001)
     }
 }
 

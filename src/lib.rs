@@ -8,7 +8,7 @@ pub mod air;
 mod facing;
 pub mod liquids;
 pub mod objects;
-pub(crate) mod tiles;
+pub mod tiles;
 
 pub use facing::Facing;
 
@@ -41,6 +41,10 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         &self.tiles[x][y]
     }
 
+    pub fn tile_mut(&mut self, x: usize, y: usize) -> &mut Tile {
+        &mut self.tiles[x][y]
+    }
+
     pub fn width(&self) -> usize {
         WIDTH
     }
@@ -54,40 +58,51 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         TileCoordIter::new(WIDTH, HEIGHT)
     }
 
-    fn neighbour_tile_coords(
-        target_tile_x: usize,
-        target_tile_y: usize,
-    ) -> impl Iterator<Item = (usize, usize)> + Clone {
+    fn neighbour_tile_coords(target_tile_x: usize, target_tile_y: usize) -> NeighbourCoordsIter {
         let has_neg_x_neighbour = target_tile_x > 0;
         let has_neg_y_neighbour = target_tile_y > 0;
         let has_pos_x_neighbour = target_tile_x < WIDTH - 1;
         let has_pos_y_neighbour = target_tile_y < HEIGHT - 1;
 
-        [
-            (has_neg_x_neighbour && has_neg_y_neighbour)
-                .then(|| (target_tile_x - 1, target_tile_y - 1)),
-            (has_neg_x_neighbour).then(|| (target_tile_x - 1, target_tile_y)),
-            (has_neg_x_neighbour && has_pos_y_neighbour)
-                .then(|| (target_tile_x - 1, target_tile_y + 1)),
-            (has_neg_y_neighbour).then(|| (target_tile_x, target_tile_y - 1)),
-            (has_pos_y_neighbour).then(|| (target_tile_x, target_tile_y + 1)),
-            (has_pos_x_neighbour && has_neg_y_neighbour)
-                .then(|| (target_tile_x + 1, target_tile_y - 1)),
-            (has_pos_x_neighbour).then(|| (target_tile_x + 1, target_tile_y)),
-            (has_pos_x_neighbour && has_pos_y_neighbour)
-                .then(|| (target_tile_x + 1, target_tile_y + 1)),
-        ]
-        .into_iter()
-        .filter_map(|t| t)
+        NeighbourCoordsIter {
+            coords: [
+                (has_neg_x_neighbour && has_neg_y_neighbour)
+                    .then(|| (target_tile_x - 1, target_tile_y - 1)),
+                (has_neg_x_neighbour).then(|| (target_tile_x - 1, target_tile_y)),
+                (has_neg_x_neighbour && has_pos_y_neighbour)
+                    .then(|| (target_tile_x - 1, target_tile_y + 1)),
+                (has_neg_y_neighbour).then(|| (target_tile_x, target_tile_y - 1)),
+                (has_pos_y_neighbour).then(|| (target_tile_x, target_tile_y + 1)),
+                (has_pos_x_neighbour && has_neg_y_neighbour)
+                    .then(|| (target_tile_x + 1, target_tile_y - 1)),
+                (has_pos_x_neighbour).then(|| (target_tile_x + 1, target_tile_y)),
+                (has_pos_x_neighbour && has_pos_y_neighbour)
+                    .then(|| (target_tile_x + 1, target_tile_y + 1)),
+            ],
+            index: 0,
+        }
     }
 
     fn neighbour_tiles(
         &self,
         target_tile_x: usize,
         target_tile_y: usize,
-    ) -> impl Iterator<Item = (usize, usize, &Tile)> + Clone {
-        Self::neighbour_tile_coords(target_tile_x, target_tile_y)
-            .map(|(x, y)| (x, y, &self.tiles[x][y]))
+    ) -> NeighbourTilesIter<'_, Self> {
+        NeighbourTilesIter {
+            coords: Self::neighbour_tile_coords(target_tile_x, target_tile_y),
+            map: self,
+        }
+    }
+
+    pub fn neighbour_tiles_dyn(
+        &self,
+        target_tile_x: usize,
+        target_tile_y: usize,
+    ) -> NeighbourTilesIter<'_, dyn MapObject> {
+        NeighbourTilesIter {
+            coords: Self::neighbour_tile_coords(target_tile_x, target_tile_y),
+            map: self,
+        }
     }
 
     pub fn perform_simulation_tick(&mut self, delta_time: f32) {
@@ -155,10 +170,49 @@ impl Iterator for TileCoordIter {
         if self.current_width == self.width {
             return None;
         }
-        
+
         let return_value = Some((self.current_width, self.current_height));
         self.current_height += 1;
         return_value
+    }
+}
+
+#[derive(Clone)]
+pub struct NeighbourCoordsIter {
+    coords: [Option<(usize, usize)>; 8],
+    index: usize,
+}
+
+impl Iterator for NeighbourCoordsIter {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.index < self.coords.len() {
+            let coords = self.coords[self.index];
+
+            self.index += 1;
+
+            if coords.is_some() {
+                return coords;
+            }
+        }
+
+        None
+    }
+}
+
+#[derive(Clone)]
+pub struct NeighbourTilesIter<'m, M: MapObject + ?Sized> {
+    coords: NeighbourCoordsIter,
+    map: &'m M,
+}
+
+impl<'m, M: MapObject + ?Sized> Iterator for NeighbourTilesIter<'m, M> {
+    type Item = (usize, usize, &'m Tile);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (x, y) = self.coords.next()?;
+        Some((x, y, self.map.tile(x, y)))
     }
 }
 

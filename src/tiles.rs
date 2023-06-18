@@ -7,6 +7,8 @@ pub struct Tile {
 }
 
 impl Tile {
+    pub const TUNNEL_HEIGHT: f32 = 3.0;
+
     pub fn new(ground_level: f32, tile_type: TileType) -> Self {
         Self {
             ground_level,
@@ -42,7 +44,7 @@ impl TileType {
         }
     }
 
-    pub(crate) fn get_ground(&self) -> Option<(&AirData, &LiquidData)> {
+    pub fn get_ground(&self) -> Option<(&AirData, &LiquidData)> {
         if let Self::Ground { air, liquids } = self {
             Some((air, liquids))
         } else {
@@ -58,7 +60,7 @@ impl TileType {
         }
     }
 
-    pub(crate) fn get_air(&self) -> Option<&AirData> {
+    pub fn get_air(&self) -> Option<&AirData> {
         if let Self::Ground { air, .. } = self {
             Some(air)
         } else {
@@ -74,7 +76,7 @@ impl TileType {
         }
     }
 
-    pub(crate) fn get_liquids(&self) -> Option<&LiquidData> {
+    pub fn get_liquids(&self) -> Option<&LiquidData> {
         if let Self::Ground { liquids, .. } = self {
             Some(liquids)
         } else {
@@ -88,6 +90,14 @@ impl TileType {
         } else {
             None
         }
+    }
+
+    /// Returns `true` if the tile type is [`Wall`].
+    ///
+    /// [`Wall`]: TileType::Wall
+    #[must_use]
+    pub fn is_wall(&self) -> bool {
+        matches!(self, Self::Wall)
     }
 }
 

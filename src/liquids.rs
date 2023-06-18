@@ -1,4 +1,4 @@
-use crate::Map;
+use crate::{tiles::Tile, Map};
 
 impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
     pub(crate) fn calculate_liquid_diff<L: Liquid>(
@@ -32,7 +32,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             for (nx, ny, neighbour_ground_level, neighbour_liquid_level) in neighbour_liquids {
                 let neighbour_total_level = neighbour_ground_level + neighbour_liquid_level;
                 if neighbour_total_level >= total_level
-                    || neighbour_liquid_level >= LiquidData::MAX_LEVEL
+                    || neighbour_liquid_level >= Tile::TUNNEL_HEIGHT
                 {
                     continue;
                 }
@@ -104,8 +104,6 @@ pub enum LiquidData {
 }
 
 impl LiquidData {
-    pub(crate) const MAX_LEVEL: f32 = 3.0;
-
     pub const fn new_default() -> Self {
         Self::None
     }
