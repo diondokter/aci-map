@@ -22,10 +22,10 @@ impl Facing {
         y: usize,
     ) -> Option<(usize, usize)> {
         match self {
-            Facing::North => (y > 0).then(|| (x, y - 1)),
-            Facing::East => (x < WIDTH - 1).then(|| (x + 1, y)),
-            Facing::South => (y < HEIGHT - 1).then(|| (x, y + 1)),
-            Facing::West => (x > 0).then(|| (x - 1, y)),
+            Facing::North => (y > 0).then_some((x, y - 1)),
+            Facing::East => (x < WIDTH - 1).then_some((x + 1, y)),
+            Facing::South => (y < HEIGHT - 1).then_some((x, y + 1)),
+            Facing::West => (x > 0).then_some((x - 1, y)),
         }
     }
 

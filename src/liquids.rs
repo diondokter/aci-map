@@ -84,8 +84,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
             .read()
             .unwrap()
             .get_all_objects()
-            .map(|object| object.liquid_levelers())
-            .flatten()
+            .flat_map(|object| object.liquid_levelers())
         {
             let Some(liquids) = self.tiles[liquid_leveler.x][liquid_leveler.y].tile_type.get_liquids_mut() else {
                 continue;

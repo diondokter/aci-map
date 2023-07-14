@@ -1,7 +1,10 @@
 use air::AirDiff;
 use liquids::{Lava, Water};
 use objects::Objects;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::{
+    mem::size_of,
+    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+};
 use tiles::Tile;
 
 pub mod air;
@@ -67,17 +70,17 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
         NeighbourCoordsIter {
             coords: [
                 (has_neg_x_neighbour && has_neg_y_neighbour)
-                    .then(|| (target_tile_x - 1, target_tile_y - 1)),
-                (has_neg_x_neighbour).then(|| (target_tile_x - 1, target_tile_y)),
+                    .then_some((target_tile_x - 1, target_tile_y - 1)),
+                (has_neg_x_neighbour).then_some((target_tile_x - 1, target_tile_y)),
                 (has_neg_x_neighbour && has_pos_y_neighbour)
-                    .then(|| (target_tile_x - 1, target_tile_y + 1)),
-                (has_neg_y_neighbour).then(|| (target_tile_x, target_tile_y - 1)),
-                (has_pos_y_neighbour).then(|| (target_tile_x, target_tile_y + 1)),
+                    .then_some((target_tile_x - 1, target_tile_y + 1)),
+                (has_neg_y_neighbour).then_some((target_tile_x, target_tile_y - 1)),
+                (has_pos_y_neighbour).then_some((target_tile_x, target_tile_y + 1)),
                 (has_pos_x_neighbour && has_neg_y_neighbour)
-                    .then(|| (target_tile_x + 1, target_tile_y - 1)),
-                (has_pos_x_neighbour).then(|| (target_tile_x + 1, target_tile_y)),
+                    .then_some((target_tile_x + 1, target_tile_y - 1)),
+                (has_pos_x_neighbour).then_some((target_tile_x + 1, target_tile_y)),
                 (has_pos_x_neighbour && has_pos_y_neighbour)
-                    .then(|| (target_tile_x + 1, target_tile_y + 1)),
+                    .then_some((target_tile_x + 1, target_tile_y + 1)),
             ],
             index: 0,
         }
@@ -131,6 +134,22 @@ impl<const WIDTH: usize, const HEIGHT: usize> Map<WIDTH, HEIGHT> {
 
     pub fn perform_frame_tick(&mut self, delta_time: f32) {
         self.perform_ai_tick(delta_time);
+    }
+
+    // Data must be a two dimensional array that fits an f32 for each tile
+    pub fn set_terrain_height_map(&self, data: &mut [u8]) {
+        assert_eq!(data.len(), WIDTH * HEIGHT * size_of::<f32>());
+
+        let data: &mut [[f32; HEIGHT]; WIDTH] = unsafe { &mut *(data.as_mut_ptr() as *mut _) };
+
+        for (x, y) in self.all_tile_coords() {
+            data[x][y] = self.tiles[x][y].ground_level
+                + self.tiles[x][y]
+                    .tile_type
+                    .is_wall()
+                    .then_some(Tile::TUNNEL_HEIGHT)
+                    .unwrap_or_default();
+        }
     }
 }
 

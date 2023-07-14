@@ -22,10 +22,7 @@ impl<T> Copy for ObjectId<T> {}
 
 impl<T> Clone for ObjectId<T> {
     fn clone(&self) -> Self {
-        Self {
-            id: self.id.clone(),
-            _phantom: self._phantom.clone(),
-        }
+        *self
     }
 }
 

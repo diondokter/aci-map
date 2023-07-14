@@ -312,7 +312,7 @@ impl<'o, T: ObjectProperties + ?Sized> Deref for LockedObject<'o, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.object
+        self.object
     }
 }
 
@@ -364,13 +364,13 @@ impl<'o, T: ObjectProperties + ?Sized> Deref for LockedObjectMut<'o, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.object
+        self.object
     }
 }
 
 impl<'o, T: ObjectProperties + ?Sized> DerefMut for LockedObjectMut<'o, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.object
+        self.object
     }
 }
 
